@@ -6,7 +6,10 @@
   "plugins": [
     {
       "name": "claude-multi-agent",
-      "source": ".",
+      "source": {
+        "source": "github",
+        "repo": "cingulate1/claude-multi-agent"
+      },
       "description": "A Claude plugin that designs and then autonomously executes multi-agent workflows as directed graphs."
     }
   ]
