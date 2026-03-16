@@ -376,21 +376,22 @@ def _expand_dynamic_templates_for_node(
 
 
 def _load_prompt(run_dir: Path, agent_name: str) -> str:
-    """Load the prompt file for an agent.
+    """Load the prompt file for an agent, prefixed with the working directory.
 
-    Looks for {run_dir}/agents/{agent_name}-prompt.txt.  If found, returns
-    its content.  Otherwise falls back to a minimal prompt containing the
-    run directory path (legacy behaviour).
+    Every prompt starts with the absolute run_dir path so agents can
+    construct correct absolute paths for tool calls like Write.
     """
+    header = f"Working directory: {run_dir}\nAll relative paths in this prompt are relative to the working directory above.\n\n"
+
     prompt_file = run_dir / "agents" / f"{agent_name}-prompt.txt"
     if prompt_file.is_file():
         text = prompt_file.read_text(encoding="utf-8").strip()
         if text:
-            return text
-        logging.warning(f"  Prompt file for '{agent_name}' is empty, falling back to run_dir")
+            return header + text
+        logging.warning(f"  Prompt file for '{agent_name}' is empty")
     else:
-        logging.warning(f"  No prompt file for '{agent_name}', falling back to run_dir")
-    return f"Working directory: {run_dir}"
+        logging.warning(f"  No prompt file for '{agent_name}'")
+    return header.strip()
 
 
 def _build_agent_cmd(agent_name: str, run_dir: Path, agent_file: str | None = None) -> list[str]:
