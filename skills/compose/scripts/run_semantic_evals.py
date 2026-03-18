@@ -13,8 +13,8 @@ Writes one CSV file per evaluation to output/evaluations/eval-NNNN.csv,
 each containing a single integer 1-5.
 
 Usage:
-    python run_semantic_evals.py <run_dir>
-    python run_semantic_evals.py <run_dir> --samples 5 --parallel 8
+    python run_semantic_evals.py [run_dir]
+    python run_semantic_evals.py [run_dir] --samples 5
 """
 
 from __future__ import annotations
@@ -344,7 +344,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run Haiku semantic evaluations for debate-panel scoring"
     )
-    parser.add_argument("run_dir", help="Path to the run directory")
+    parser.add_argument("run_dir", nargs="?", default=".",
+                        help="Path to the run directory (default: current directory)")
     parser.add_argument(
         "--samples", type=int, default=3,
         help="Samples per evaluation (default: 3)",
