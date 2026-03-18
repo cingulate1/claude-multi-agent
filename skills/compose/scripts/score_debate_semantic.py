@@ -28,8 +28,8 @@ Formula per element (panelist P, transition k-1 -> k):
 The 1.5 multiplier preserves (w2+w4)/w3 = (25+20)/30 from Free-MAD.
 
 Usage:
-    python score_debate_semantic.py [run_dir]
-    python score_debate_semantic.py [run_dir] --samples 5
+    cd <run_dir> && python score_debate_semantic.py
+    cd <run_dir> && python score_debate_semantic.py --samples 5
 """
 
 from __future__ import annotations
@@ -373,8 +373,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Semantic Free-MAD scoring for debate-panel runs"
     )
-    parser.add_argument("run_dir", nargs="?", default=".",
-                        help="Path to the run directory (default: current directory)")
     parser.add_argument(
         "--samples", type=int, default=3,
         help="Number of samples per evaluation (default: 3)",
@@ -387,7 +385,7 @@ def main() -> int:
         stream=sys.stderr,
     )
 
-    run_dir = Path(args.run_dir).resolve()
+    run_dir = Path.cwd()
     if not run_dir.is_dir():
         log.error(f"Run directory does not exist: {run_dir}")
         return 1

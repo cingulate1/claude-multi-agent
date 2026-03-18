@@ -484,7 +484,7 @@ def run_script(
     if not script_path.is_file():
         raise RuntimeError(f"Script not found for node '{node_name}': {script}")
 
-    cmd = [sys.executable, str(script_path), str(run_dir)]
+    cmd = [sys.executable, str(script_path)]
     if script_args:
         cmd.extend(script_args)
     logging.info(f"  Running script: {node_name} -> {script}")
@@ -493,6 +493,7 @@ def run_script(
     with open(log_path, "w", encoding="utf-8") as f:
         result = subprocess.run(
             cmd,
+            cwd=run_dir,
             stdin=subprocess.DEVNULL,
             stdout=f,
             stderr=subprocess.STDOUT,
