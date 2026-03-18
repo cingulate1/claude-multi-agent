@@ -474,6 +474,7 @@ def run_script(
     run_dir: Path,
     log_path: Path,
     script: str,
+    script_args: list[str] | None = None,
     timeout: int = None,
 ) -> subprocess.CompletedProcess:
     """Run a script node directly (no LLM agent). Returns the CompletedProcess."""
@@ -484,6 +485,8 @@ def run_script(
         raise RuntimeError(f"Script not found for node '{node_name}': {script}")
 
     cmd = [sys.executable, str(script_path), str(run_dir)]
+    if script_args:
+        cmd.extend(script_args)
     logging.info(f"  Running script: {node_name} -> {script}")
     logging.debug(f"  cmd: {' '.join(cmd)}")
 
@@ -909,6 +912,7 @@ def _execute_graph(
                         run_dir,
                         agent_log,
                         node["script"],
+                        script_args=node.get("script_args"),
                     )
                 else:
                     result = run_agent(
@@ -995,6 +999,7 @@ def _execute_graph(
                     status.register_active_log(node["name"], script_log)
                     result = run_script(
                         node["name"], run_dir, script_log, node["script"],
+                        script_args=node.get("script_args"),
                     )
                     if result.returncode != 0:
                         status.set_node_state(node["name"], "failed")

@@ -346,8 +346,8 @@ def main() -> int:
     )
     parser.add_argument("run_dir", help="Path to the run directory")
     parser.add_argument(
-        "--samples", type=int, default=1,
-        help="Samples per evaluation (default: 1)",
+        "--samples", type=int, default=3,
+        help="Samples per evaluation (default: 3)",
     )
     args = parser.parse_args()
 

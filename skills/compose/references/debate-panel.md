@@ -13,45 +13,63 @@
 - What distinct perspectives or expertise should the panelists bring?
 - What exact decision, argument, or deliverable should they contest?
 - How many debate rounds? Default: `2`. Range: `1`-`3`. More rounds increase token cost and risk conformity drift; fewer rounds may not surface all weaknesses. One round is sufficient for most tasks.
-- If the task involves longer-form answers (paragraphs rather than a single choice or number): note that the scoring script currently uses exact normalized string match for answer identity. For longer-form answers, instruct panelists to keep their `## Final Answer` block to a single concise sentence or phrase so that equivalent answers are recognized as such.
+- Answer format: panelists should include a `## Final Answer` block at the end of their output. The scoring system uses Haiku-based semantic evaluation to assess position changes and convergence across rounds, so answers do not need to be short labels — longer-form answers work fine.
 - If the user wants more than 3 rounds, note that token cost scales as `O(N * R)` and conformity risk increases with each round. Recommend staying at 1-2 rounds unless the task specifically benefits from extended deliberation.
 
 ## Confirm Back
 
 - `N` panelists. Each panelist uses one agent file but is instantiated across multiple phases.
 - `R` debate rounds (default `2`). The topology has `R + 1` phases of panelist work plus one final scoring phase.
-- Phase 0 is independent answer generation. Phases 1 through R are adversarial debate rounds. The final phase is deterministic answer selection (no LLM judge).
-- The winner is selected by an algorithmic scoring mechanism that tracks answer trajectories across all rounds. The scoring runs as a deterministic script or orchestrator post-processing step, not as an LLM agent.
+- Phase 0 is independent answer generation. Phases 1 through R are adversarial debate rounds. The final phase is semantic evaluation (Haiku) followed by deterministic scoring.
+- The winner is selected by a two-stage scoring pipeline: Haiku evaluates semantic position changes and convergence across rounds (3 samples per evaluation, SHA-256 seeded), then a deterministic algorithm computes final scores from those evaluations.
 - Panelists are never told how the winner is selected. Their prompts contain zero information about the scoring mechanism.
 - Final output is the highest-scoring answer, copied verbatim from the panelist that produced it.
 
 ## The Scoring Mechanism
 
-The scoring algorithm tracks *answers*, not agents. A dictionary `S` maps each distinct answer string to an accumulated score. The algorithm processes the full answer matrix (all agents, all rounds) and applies four weighted operations:
+Scoring uses a two-stage pipeline: **semantic evaluation** (Haiku LLM calls) followed by **deterministic scoring** (pure math).
 
-| Event | Weight | Meaning |
-|-------|--------|---------|
-| An answer appears for the first time (round 0) | `w1 = 20` | Initial appearance credit |
-| An agent abandons a previous answer for a new one — the abandoned answer is penalized | `w2 = 25` | Abandonment penalty (subtracted from the old answer's score) |
-| An agent switches TO a new answer — the new answer is rewarded | `w3 = 30` | Conversion reward (added to the new answer's score) |
-| An agent maintains the same answer as the previous round | `w4 = 20` | Maintenance credit |
+### Stage 1: Semantic Evaluation
 
-Every weight is multiplied by a **round decay factor** `f = 1 / (k + 1)` where `k` is the zero-indexed round number. Round 0 has `f = 1.0`, round 1 has `f = 0.5`, round 2 has `f ≈ 0.33`. This decay counteracts LLM conformity: opinion shifts in later rounds (which are more likely driven by social pressure rather than genuine reasoning) carry less weight than earlier, more independent judgments.
+For each round transition (k-1 → k), for each panelist, independent Haiku invocations answer two questions:
 
-After processing all rounds, the answer with the highest score in `S` is selected. Ties are broken randomly.
+- **Q1**: To what extent did this panelist change their core position? (1-5 scale)
+- **Q2**: To what extent did each other panelist move toward this panelist's position? (1-5 scale)
+
+Each evaluation is an independent Haiku call with no knowledge of the larger workflow. A SHA-256 hash of the evaluation index is prepended as a `<taskID>` to seed distinct inference contexts across repeated samples (default: 3 samples per evaluation, median aggregated).
+
+The semantic approach means panelists can express answers in any form — paragraphs, structured arguments, labels — and the scoring system will correctly detect position changes, convergence, and maintenance regardless of phrasing.
+
+### Stage 2: Deterministic Scoring
+
+The evaluation scores are mapped to coefficients (1→0.00, 2→0.25, 3→0.50, 4→0.75, 5→1.00) and combined per panelist per transition:
+
+```
+change_component    = Q1_avg × -1 × 1.5
+convergence_component = sum(Q2_avg_j for each other panelist j)
+element_score       = (change + convergence) × f
+```
+
+Where `f = 1 / (k + 1)` is the round decay factor (same as Free-MAD). The 1.5 multiplier on change preserves the `(w2 + w4) / w3 = 45/30` ratio from the discrete Free-MAD weights.
+
+The panelist with the highest total score wins. Their final-round answer is copied verbatim to the output.
 
 ### Why This Design
 
-- Answers that attract converts from other positions score higher (`w3 > w4`) than answers merely maintained. This rewards persuasive reasoning.
-- Abandoned answers are actively penalized (`w2`), not just ignored. An answer that agents flee from is treated as evidence of weakness.
-- The decay factor means that if all agents converge to one answer by round 2, that late-round conformity contributes less than the independent judgments from round 0. This prevents herd behavior from dominating the result.
-- The entire mechanism runs outside the LLM. It cannot be influenced by hallucination, prompt injection, or agent manipulation.
+- Semantic evaluation means the scoring system understands *meaning*, not just string identity. Two panelists expressing the same conclusion in different words are correctly recognized as agreeing.
+- The SHA-256 task ID decorrelates repeated samples — each Haiku call sees a unique "task context" that prevents correlated scoring artifacts across samples.
+- Haiku is used for scoring (cheap, fast) while the debate itself runs on a reasoning-heavy model. The scorer doesn't need to be smart — it just needs to rate change/convergence on a 1-5 scale.
+- The decay factor counteracts LLM conformity: opinion shifts in later rounds carry less weight than earlier, more independent judgments.
+- The deterministic scoring stage runs outside the LLM. The Haiku calls only produce atomic 1-5 integers — the aggregation math cannot be influenced by hallucination or manipulation.
 
-### Scoring Script
+### Scoring Scripts
 
-The scoring implementation is bundled at `${CLAUDE_PLUGIN_ROOT}/skills/compose/scripts/score_debate.py`. Copy it into the run directory at scaffold time. The orchestrator calls it after the final debate round completes.
+Two scripts are bundled at `${CLAUDE_PLUGIN_ROOT}/skills/compose/scripts/`:
 
-The script reads all panelist output files, extracts `## Final Answer` blocks, builds the answer matrix, runs the scoring algorithm, and writes the winning answer verbatim to `output/final-selection.md`.
+1. `run_semantic_evals.py` — Invokes Haiku to produce evaluation CSVs in `output/evaluations/`. Default: 3 samples per evaluation.
+2. `score_debate_semantic.py` — Reads the CSVs, builds coefficient matrices, computes final scores, writes `output/final-selection.md`.
+
+Copy both into the run directory at scaffold time. The orchestrator runs them as two sequential script nodes after the final debate round.
 
 ## Tool Assignments
 
@@ -66,21 +84,28 @@ The script reads all panelist output files, extracts `## Final Answer` blocks, b
 
 - **Phase 0** (parallel group `initial`): all `N` panelists write `output/{persona}-round0.md` independently. No dependencies.
 - **Phases 1 through R** (parallel group `round-{k}`): each panelist depends on ALL panelist outputs from the previous round. Panelist `i` in round `k` reads every `output/*-round{k-1}.md` and writes `output/{persona}-round{k}.md`.
-- **Final phase** (single node `scorer`): depends on all round-R outputs. Runs the scoring script (not an LLM agent). Reads all `output/*-round*.md` files, executes the scoring algorithm, and writes `output/final-selection.md`.
+- **Evaluation phase** (single node `semantic-evaluator`): depends on all round-R outputs. Runs `run_semantic_evals.py` to invoke Haiku for semantic evaluation of position changes and convergence. Writes CSV files to `output/evaluations/`.
+- **Scoring phase** (single node `scorer`): depends on `semantic-evaluator`. Runs `score_debate_semantic.py` to compute final scores from the evaluation CSVs. Writes `output/final-selection.md`.
 
 ### Nodes
 
-For `N` panelists and `R` rounds, generate `N * (R + 1) + 1` nodes total:
+For `N` panelists and `R` rounds, generate `N * (R + 1) + 2` nodes total:
 
 - `N` initial nodes: `{persona}-round0` (parallel group `initial`, no dependencies)
 - `N` debate nodes per round: `{persona}-round{k}` for k = 1..R (parallel group `round-{k}`, depends on all `*-round{k-1}` nodes)
-- `1` scorer node: `scorer` (depends on all round-R nodes)
+- `1` semantic evaluator node: `semantic-evaluator` (depends on all round-R nodes)
+- `1` scorer node: `scorer` (depends on `semantic-evaluator`)
 
 Each debate-round node uses the same agent file as the corresponding panelist's initial node — the persona is consistent across rounds.
 
-### Scorer Node
+### Scorer Nodes
 
-The scorer node is NOT an LLM agent. It is a script execution node. In the execution plan, set `"node_type": "script"` and `"script": "score_debate.py"` on this node. The orchestrator will run it directly via Python subprocess — no agent file, no LLM invocation, no token cost.
+The scoring pipeline has two sequential script nodes — neither is an LLM agent (though the first invokes Haiku internally):
+
+1. **`semantic-evaluator`**: Runs `run_semantic_evals.py` with `--samples 3`. Spawns independent Haiku calls to evaluate position changes and convergence across rounds. Writes CSV files to `output/evaluations/`.
+2. **`scorer`**: Runs `score_debate_semantic.py` with `--samples 3`. Reads the CSVs, computes final scores, writes `output/final-selection.md`.
+
+The `--samples` argument is passed via the `script_args` field in the execution plan node definition.
 
 ### No Cycles
 
@@ -162,16 +187,25 @@ Panelist prompts must NOT contain:
 
 Panelists must believe they are in a genuine adversarial debate where the strength of their reasoning is what matters.
 
-## Scorer Node (No Agent File, No Prompt File)
+## Scorer Nodes (No Agent Files, No Prompt Files)
 
-The scorer is a script node, not an LLM agent. Do NOT generate an agent file or prompt file for it. The execution plan entry is all that's needed:
+The scoring pipeline uses two sequential script nodes. Do NOT generate agent files or prompt files for them. The execution plan entries are all that's needed:
 
 ```json
 {
+  "name": "semantic-evaluator",
+  "node_type": "script",
+  "script": "run_semantic_evals.py",
+  "script_args": ["--samples", "3"],
+  "depends_on": ["<all round-R node names>"],
+  "outputs": []
+},
+{
   "name": "scorer",
   "node_type": "script",
-  "script": "score_debate.py",
-  "depends_on": ["<all round-R node names>"],
+  "script": "score_debate_semantic.py",
+  "script_args": ["--samples", "3"],
+  "depends_on": ["semantic-evaluator"],
   "outputs": ["output/final-selection.md"]
 }
 ```
