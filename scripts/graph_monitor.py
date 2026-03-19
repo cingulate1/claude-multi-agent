@@ -61,16 +61,6 @@ ARROW_COLOR = "#64748B"
 ARROW_WIDTH = 1.5
 ARROWHEAD_SIZE = 8
 
-KNOWN_PATTERNS = {
-    "chained-iteration",
-    "rag-grounded",
-    "rubric-based",
-    "consensus-panel",
-    "debate-panel",
-    "dissensus-integration",
-    "parallel-decomposition",
-}
-
 
 # ---------------------------------------------------------------------------
 # Geometry helpers
@@ -236,11 +226,12 @@ def compute_layout(
 
     # --- Bipartite cycles (rag-grounded, rubric-based and their variants) ---
     if pattern.startswith("rag-grounded") or pattern.startswith("rubric-based"):
-        if len(names) == 2:
+        if len(names) <= 3:
             cx = canvas_width / 2
-            mid_y = effective_height / 2
             gap = NODE_HEIGHT * 1.6
-            return {names[0]: (cx, mid_y - gap / 2), names[1]: (cx, mid_y + gap / 2)}
+            total_h = gap * (len(names) - 1)
+            start_y = effective_height / 2 - total_h / 2
+            return {name: (cx, start_y + i * gap) for i, name in enumerate(names)}
         # Fallback for unexpected node counts
         return _layered_layout(nodes, canvas_width, effective_height)
 
