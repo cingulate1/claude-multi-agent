@@ -190,7 +190,6 @@ def invoke_haiku(prompt: str, timeout: int = HAIKU_TIMEOUT) -> str:
         "-p", prompt,
         "--model", "haiku",
         "--output-format", "text",
-        "--dangerously-skip-permissions",
         "--no-session-persistence",
         "--max-turns", "1",
     ]

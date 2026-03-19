@@ -405,11 +405,15 @@ def _build_agent_cmd(agent_name: str, run_dir: Path, agent_file: str | None = No
         "-p", prompt,
         "--verbose",
         "--output-format", "stream-json",
-        "--dangerously-skip-permissions",
         "--no-session-persistence",
     ]
 
     frontmatter = _read_agent_frontmatter(run_dir, agent_name, agent_file)
+
+    model = frontmatter.get("model")
+    if model:
+        cmd.extend(["--model", model])
+
     tools_arg = _normalize_tools_arg(frontmatter.get("tools"))
     if tools_arg:
         cmd.extend(["--tools", tools_arg])
