@@ -402,6 +402,7 @@ def _build_agent_cmd(agent_name: str, run_dir: Path, agent_file: str | None = No
         "claude",
         "--agent", f"{PLUGIN_NAME}:{agent_name}",
         "--plugin-dir", str(PLUGIN_ROOT),
+        "--add-dir", str(run_dir),
         "-p", prompt,
         "--verbose",
         "--output-format", "stream-json",
