@@ -77,6 +77,10 @@ These patterns use multiple agents with distinct perspectives working on the sam
 
 **Parallel Decomposition** — A decomposer partitions the task into independent assignments, then workers execute them in parallel. Worker outputs are collected, not synthesized. Best when the task naturally splits into pieces that don't need reconciliation — batch processing, independent analyses, coverage across categories. Topology: 1 decomposer + N workers (fixed or dynamic count), fan-out.
 
+### Custom or Hybrid Graphs
+
+If the user asks for a variation on a built-in pattern, a combination of patterns, or describes a custom topology (including Mermaid diagrams), read `${CLAUDE_PLUGIN_ROOT}/skills/compose/references/custom-graph.md` and follow its instructions instead of the standard pattern selection flow below. The custom graph reference covers topology elicitation, node specification, validation, and prompt generation for arbitrary graphs.
+
 ### Recommend a Pattern
 
 Use the pattern descriptions above to match the user's task. Key differentiators:
@@ -106,6 +110,7 @@ Once a pattern is selected, read its reference to get the pattern-specific quest
 - Debate Panel → `${CLAUDE_PLUGIN_ROOT}/skills/compose/references/debate-panel.md`
 - Dissensus Integration → `${CLAUDE_PLUGIN_ROOT}/skills/compose/references/dissensus-integration.md`
 - Parallel Decomposition → `${CLAUDE_PLUGIN_ROOT}/skills/compose/references/parallel-decomposition.md`
+- Custom / Hybrid Graph → `${CLAUDE_PLUGIN_ROOT}/skills/compose/references/custom-graph.md`
 
 Read only the selected pattern's reference. If choosing between two close options, you may read both candidates.
 
