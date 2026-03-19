@@ -37,6 +37,7 @@ CANVAS_USABLE_FRACTION = 0.7814  # Events panel occupies ~21.86% of window heigh
 NODE_WIDTH = 220
 NODE_HEIGHT = 74
 NODE_CORNER_RADIUS = 10
+NODE_MARGIN_X = 20  # Minimum margin between node edge and canvas edge
 NODE_FONT = ("Segoe UI", 8)
 NODE_FONT_BOLD = ("Segoe UI", 9, "bold")
 MODEL_COLOR = "#475569"
@@ -198,7 +199,7 @@ def compute_layout(
     if not names:
         return {}
 
-    usable_w = canvas_width * 0.95  # 2.5% margin each side
+    usable_w = canvas_width - NODE_WIDTH - 2 * NODE_MARGIN_X
     usable_h = effective_height - 2 * CANVAS_PAD
     left = CANVAS_PAD
     top = CANVAS_PAD
@@ -272,7 +273,7 @@ def _panel_layout(
 
     Groups nodes by parallel_group, then orders groups by dependency depth.
     """
-    usable_w = canvas_width * 0.95  # 2.5% margin each side
+    usable_w = canvas_width - NODE_WIDTH - 2 * NODE_MARGIN_X
     usable_h = canvas_height - 2 * CANVAS_PAD
 
     # Group by parallel_group (or None)
@@ -335,7 +336,7 @@ def _decomposition_layout(
     canvas_height: int,
 ) -> Dict[str, Tuple[float, float]]:
     """Layout for one decomposer feeding many independent workers."""
-    usable_w = canvas_width * 0.95  # 2.5% margin each side
+    usable_w = canvas_width - NODE_WIDTH - 2 * NODE_MARGIN_X
     usable_h = canvas_height - 2 * CANVAS_PAD
 
     decomposer = [n["name"] for n in nodes if not n.get("depends_on")]
@@ -356,7 +357,7 @@ def _decomposition_layout(
     if not workers:
         return positions
 
-    max_cols = max(1, int(usable_w // (NODE_WIDTH + 24)))
+    max_cols = max(1, int((canvas_width - 2 * NODE_MARGIN_X) // (NODE_WIDTH + 24)))
     num_rows = math.ceil(len(workers) / max_cols)
 
     top_y = CANVAS_PAD + NODE_HEIGHT + 110
@@ -391,7 +392,7 @@ def _layered_layout(
     canvas_height: int,
 ) -> Dict[str, Tuple[float, float]]:
     """Generic layered layout by topological depth."""
-    usable_w = canvas_width * 0.95  # 2.5% margin each side
+    usable_w = canvas_width - NODE_WIDTH - 2 * NODE_MARGIN_X
     usable_h = canvas_height - 2 * CANVAS_PAD
 
     name_to_node = {n["name"]: n for n in nodes}
