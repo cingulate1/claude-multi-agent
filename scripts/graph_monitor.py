@@ -1059,6 +1059,16 @@ class GraphMonitorApp:
         self._compacted_agents: set = set()  # agents detected as compacted from run-status.md
         self._polling_active = True
 
+        # -- Zoom / pan state --
+        self._zoom_level = 1.0
+        self._base_font_sizes: Dict[str, int] = {
+            "node": NODE_FONT[1],
+            "node_bold": NODE_FONT_BOLD[1],
+            "model": NODE_FONT[1],
+            "token": TOKEN_FONT[1],
+            "cycle_label": CYCLE_LABEL_FONT[1],
+        }
+
         # -- Window setup --
         self.root = tk.Tk()
         self.root.title("multi-agent-graph")
@@ -1090,6 +1100,8 @@ class GraphMonitorApp:
         self.canvas = tk.Canvas(
             self.root, bg=CANVAS_BG,
             highlightthickness=0,
+            xscrollincrement=1,
+            yscrollincrement=1,
         )
         self.canvas.pack(fill="both", expand=True)
 
@@ -1125,6 +1137,21 @@ class GraphMonitorApp:
         # Bind resize
         self.canvas.bind("<Configure>", self._on_canvas_resize)
 
+        # -- Zoom & pan bindings --
+        # Middle-click drag to pan
+        self.canvas.bind("<ButtonPress-2>", self._on_pan_start)
+        self.canvas.bind("<B2-Motion>", self._on_pan_move)
+        # Right-click drag as alternative pan (for mice without middle button)
+        self.canvas.bind("<ButtonPress-3>", self._on_pan_start)
+        self.canvas.bind("<B3-Motion>", self._on_pan_move)
+        # Mouse wheel zoom (Windows)
+        self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
+        # Reset view: double-middle-click or Home key
+        self.canvas.bind("<Double-Button-2>", self._on_reset_view)
+        self.root.bind("<Home>", self._on_reset_view)
+        # Make canvas focusable so Home key works
+        self.canvas.focus_set()
+
     def _update_waiting_pos(self) -> None:
         w = self.canvas.winfo_width() or WINDOW_WIDTH
         h = self.canvas.winfo_height() or (WINDOW_HEIGHT - 170)
@@ -1132,7 +1159,9 @@ class GraphMonitorApp:
 
     def _on_canvas_resize(self, event: tk.Event) -> None:
         if self.plan is not None:
+            self._zoom_level = 1.0  # Reset zoom on window resize
             self.renderer.resize(event.width, event.height)
+            self._update_scrollregion()
             # Re-apply last known states after redraw
             if self.last_status:
                 self.renderer.update_states(
@@ -1142,6 +1171,96 @@ class GraphMonitorApp:
                 )
         else:
             self._update_waiting_pos()
+
+    # -- Zoom & pan handlers --
+
+    def _on_pan_start(self, event: tk.Event) -> None:
+        self.canvas.scan_mark(event.x, event.y)
+
+    def _on_pan_move(self, event: tk.Event) -> None:
+        self.canvas.scan_dragto(event.x, event.y, gain=1)
+
+    def _on_mouse_wheel(self, event: tk.Event) -> None:
+        # Don't zoom if no plan is loaded yet
+        if self.plan is None:
+            return
+
+        # Determine zoom direction from scroll delta
+        if event.delta > 0:
+            factor = 1.1
+        else:
+            factor = 0.9
+
+        # Clamp cumulative zoom to a reasonable range
+        new_zoom = self._zoom_level * factor
+        if new_zoom < 0.3 or new_zoom > 3.0:
+            return
+        self._zoom_level = new_zoom
+
+        # Convert window coordinates to canvas coordinates for correct pivot
+        cx = self.canvas.canvasx(event.x)
+        cy = self.canvas.canvasy(event.y)
+
+        # Scale all canvas items around the cursor position
+        self.canvas.scale("all", cx, cy, factor, factor)
+
+        # Update text fonts since canvas.scale() does not scale text
+        self._update_text_fonts()
+
+        # Update scrollregion to match new bounds
+        self._update_scrollregion()
+
+    def _update_text_fonts(self) -> None:
+        """Recalculate font sizes for all text items after a zoom operation."""
+        zoom = self._zoom_level
+
+        scaled_node = max(6, round(self._base_font_sizes["node"] * zoom))
+        scaled_bold = max(6, round(self._base_font_sizes["node_bold"] * zoom))
+        scaled_model = max(6, round(self._base_font_sizes["model"] * zoom))
+        scaled_token = max(6, round(self._base_font_sizes["token"] * zoom))
+        scaled_cycle = max(6, round(self._base_font_sizes["cycle_label"] * zoom))
+
+        for name, ids in self.renderer.node_ids.items():
+            self.canvas.itemconfigure(ids["text"],
+                font=(NODE_FONT_BOLD[0], scaled_bold, "bold"))
+            self.canvas.itemconfigure(ids["model_text"],
+                font=(NODE_FONT[0], scaled_model))
+            self.canvas.itemconfigure(ids["token_text"],
+                font=(TOKEN_FONT[0], scaled_token))
+
+        for label_id in self.renderer.cycle_label_ids.values():
+            self.canvas.itemconfigure(label_id,
+                font=(CYCLE_LABEL_FONT[0], scaled_cycle, "italic"))
+
+    def _update_scrollregion(self) -> None:
+        """Set the canvas scrollregion to encompass all items with padding."""
+        bbox = self.canvas.bbox("all")
+        if bbox:
+            pad = 200
+            self.canvas.configure(
+                scrollregion=(bbox[0] - pad, bbox[1] - pad,
+                              bbox[2] + pad, bbox[3] + pad)
+            )
+
+    def _on_reset_view(self, event: tk.Event = None) -> None:
+        """Reset zoom and pan to the default view."""
+        if self.plan is not None:
+            self._zoom_level = 1.0
+            # Redraw everything at the original layout
+            w = self.canvas.winfo_width() or WINDOW_WIDTH
+            h = self.canvas.winfo_height() or (WINDOW_HEIGHT - 170)
+            self.renderer.resize(w, h)
+            # Re-apply last known states after redraw
+            if self.last_status:
+                self.renderer.update_states(
+                    self.last_status.get("nodes", {}),
+                    self.last_status.get("cycles", {}),
+                    compacted_agents=self._compacted_agents,
+                )
+        # Reset pan and scrollregion
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
+        self._update_scrollregion()
 
     def _try_load_plan(self, force: bool = False) -> bool:
         if not self.plan_path.exists():
@@ -1168,7 +1287,9 @@ class GraphMonitorApp:
         w = self.canvas.winfo_width() or WINDOW_WIDTH
         h = self.canvas.winfo_height() or (WINDOW_HEIGHT - 170)
         node_models = load_node_models(self.run_dir, self.plan)
+        self._zoom_level = 1.0  # Reset zoom when plan reloads
         self.renderer.set_plan(self.plan, w, h, node_models=node_models)
+        self._update_scrollregion()
         if self.last_status:
             self.renderer.update_states(
                 self.last_status.get("nodes", {}),

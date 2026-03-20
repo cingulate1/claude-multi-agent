@@ -1,6 +1,6 @@
 {
   "name": "claude-multi-agent",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "A Claude plugin that designs and then autonomously executes multi-agent workflows as directed graphs. Comes with 7 built-in patterns, but the user is free to define their own by explaining it to Claude within the plugin.",
   "author": {
     "name": "cingulate1"
