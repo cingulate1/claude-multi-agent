@@ -174,7 +174,6 @@ These prompt files are passed to the agent via `-p` when the orchestrator invoke
 After writing all prompts, fill in the body of each agent's `.md` file:
 - Replace `{NAME}` with the agent's display name
 - Replace `{PLACEHOLDER_PERSONA}` with a brief persona reinforcing the agent's role from the prompt
-- Replace `{PLACEHOLDER_OUTPUT_FORMAT}` with the output format already specified in the prompt
 
 ### Generate execution_plan.json
 
@@ -223,6 +222,18 @@ Cycle format (bipartite):
 }
 ```
 
+### Validate Prompts
+
+After writing all prompts and the execution plan, run the prompt validator:
+
+```bash
+python "{PLUGIN_ROOT}/scripts/validate_prompts.py" --plan "{run_dir}/execution_plan.json"
+```
+
+This checks that each agent's prompt file contains the absolute output path from the execution plan in its final lines. If any prompt fails validation, rewrite its last line to include a clear, direct instruction specifying the exact file path to write to — e.g., `Write your output to D:\path\to\output\agent-name.md`
+
+Do not proceed to launch until all prompts pass validation.
+
 ### Launch Orchestrator
 
 After writing all files, launch the orchestrator as a background process:
@@ -241,7 +252,23 @@ Do not launch workflow agents with the `Agent` tool. The orchestrator invokes th
 
 ### Monitor and Report
 
-After launching, periodically check `{run_dir}/logs/status.json` to see if execution has completed. When the `state` field becomes `"completed"` or `"failed"`:
+The orchestrator launches a sidecar process (`run_monitor.py`) that polls agent logs every 3 seconds and maintains two files in `{run_dir}/logs/`:
+
+- **`run-status.md`** — a compact markdown table (~350 tokens for 8 agents) showing each agent's state, token usage, compaction status, and completion. Overwritten every 3 seconds.
+- **`timeline.jsonl`** — an append-only sanitized event log capturing every tool use, message, and compaction event with cumulative token counts. This is the clean, structured version of the raw agent logs — never read the raw `.log` files directly.
+
+After launching, set up a recurring 90-second health check. Use a Bash command with `sleep 90` to:
+
+1. **Read `{run_dir}/logs/run-status.md`** for the full snapshot. Report any agents showing `Compacted: YES` — this means the agent's context window was exceeded and its output quality is likely compromised. The user may want to kill and re-run.
+2. **Tail `{run_dir}/logs/timeline.jsonl`** (last ~50 lines) to check prompt adherence — are agents reading the right files? Are they progressing or stalled?
+
+```bash
+sleep 90 && cat "{run_dir}/logs/run-status.md" && echo "---" && tail -50 "{run_dir}/logs/timeline.jsonl"
+```
+
+Run this as a background Bash command with `run_in_background: true`. When the check completes, review the results and launch another 90-second cycle if agents are still running. Report compaction warnings to the user immediately.
+
+**Completion.** Also check `{run_dir}/logs/status.json` on each cycle. When the `state` field becomes `"completed"` or `"failed"`:
 
 - Read the final output file (from `final_output` in the execution plan)
 - Present a concise summary to the user

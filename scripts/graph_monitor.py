@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from shared import agent_path_candidates, normalize_model_label, read_agent_frontmatter
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -55,10 +57,13 @@ EVENTS_BG = "#F1F5F9"
 EVENTS_BORDER = "#CBD5E1"
 
 STATE_COLORS = {
-    "pending":   {"fill": "#E5E7EB", "border": "#9CA3AF", "width": 1.5},
-    "running":   {"fill": "#DBEAFE", "border": "#2563EB", "width": 3},
-    "completed": {"fill": "#D1FAE5", "border": "#059669", "width": 1.5},
-    "failed":    {"fill": "#FEE2E2", "border": "#DC2626", "width": 2},
+    "pending":    {"fill": "#E5E7EB", "border": "#9CA3AF", "width": 1.5},
+    "running":    {"fill": "#DBEAFE", "border": "#2563EB", "width": 3},
+    "compacted":  {"fill": "#D0A800", "border": "#8B7000", "width": 3},
+    "completed":  {"fill": "#D1FAE5", "border": "#059669", "width": 1.5},
+    "failed":     {"fill": "#FEE2E2", "border": "#DC2626", "width": 2},
+    "cancelled":  {"fill": "#FEF3C7", "border": "#D97706", "width": 1.5},
+    "terminated": {"fill": "#FEE2E2", "border": "#DC2626", "width": 2},
 }
 
 ARROW_COLOR = "#64748B"
@@ -98,67 +103,6 @@ def _bezier_point(t: float, pts: List[Tuple[float, float]]) -> Tuple[float, floa
     return x, y
 
 
-def _extract_frontmatter_model(agent_path: Path) -> Optional[str]:
-    """Return the raw `model:` value from an agent markdown frontmatter block."""
-    try:
-        lines = agent_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return None
-
-    if not lines or lines[0].strip() != "---":
-        return None
-
-    for line in lines[1:]:
-        stripped = line.strip()
-        if stripped == "---":
-            break
-        if ":" not in stripped:
-            continue
-        key, value = stripped.split(":", 1)
-        if key.strip().lower() == "model":
-            return value.strip()
-    return None
-
-
-def _normalize_model_label(raw_model: Optional[str]) -> str:
-    """Collapse raw model identifiers to a simple display label."""
-    if not raw_model:
-        return "Unknown"
-
-    lower = raw_model.strip().lower()
-    if "haiku" in lower:
-        return "Haiku"
-    if "sonnet" in lower:
-        return "Sonnet"
-    if "opus" in lower:
-        return "Opus"
-    return raw_model.strip()
-
-
-def _agent_path_candidates(run_dir: Path, agent_file: str) -> list[Path]:
-    """Return plausible run-relative/plugin-relative agent markdown paths."""
-    plugin_root = Path(__file__).resolve().parent.parent
-    raw = Path(agent_file)
-    candidates: list[Path] = []
-
-    if raw.is_absolute():
-        candidates.append(raw)
-    else:
-        candidates.append(run_dir / raw)
-        candidates.append(plugin_root / raw)
-        candidates.append(run_dir / "agents" / raw.name)
-        candidates.append(plugin_root / "agents" / raw.name)
-
-    seen: set[str] = set()
-    unique: list[Path] = []
-    for candidate in candidates:
-        key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(candidate)
-    return unique
-
 
 def load_node_models(run_dir: Path, plan: Dict[str, Any]) -> Dict[str, str]:
     """Resolve display model labels for each node from its agent markdown."""
@@ -169,11 +113,11 @@ def load_node_models(run_dir: Path, plan: Dict[str, Any]) -> Dict[str, str]:
         agent_file = node.get("agent_file")
         raw_model = None
         if agent_file:
-            for candidate in _agent_path_candidates(run_dir, agent_file):
-                raw_model = _extract_frontmatter_model(candidate)
+            for candidate in agent_path_candidates(run_dir, agent_file):
+                raw_model = read_agent_frontmatter(candidate).get("model")
                 if raw_model:
                     break
-        node_models[name] = _normalize_model_label(raw_model)
+        node_models[name] = normalize_model_label(raw_model)
 
     return node_models
 
@@ -646,7 +590,7 @@ class GraphRenderer:
             subtitle_text = "Script"
             token_text = ""
         else:
-            model_label = _normalize_model_label(self.node_models.get(name))
+            model_label = normalize_model_label(self.node_models.get(name))
             subtitle_text = f"Model: {model_label}"
             token_text = "Tokens: 0"
 
@@ -789,10 +733,11 @@ class GraphRenderer:
         ay = y2 - s * math.sin(angle - math.pi / 7)
         bx = x2 - s * math.cos(angle + math.pi / 7)
         by = y2 - s * math.sin(angle + math.pi / 7)
-        self.canvas.create_polygon(
+        poly_id = self.canvas.create_polygon(
             x2, y2, ax, ay, bx, by,
             fill=ARROW_COLOR, outline=ARROW_COLOR,
         )
+        self.edge_ids.append(poly_id)
 
     def _draw_self_loop(self, name: str) -> None:
         cx, cy = self.positions[name]
@@ -905,11 +850,18 @@ class GraphRenderer:
         self,
         node_states: Dict[str, Dict[str, Any]],
         cycle_states: Dict[str, Dict[str, Any]],
+        compacted_agents: Optional[set] = None,
     ) -> None:
         """Update node colors, model labels, token labels, and cycle labels."""
+        _compacted = compacted_agents or set()
         for name, ids in self.node_ids.items():
             node_data = node_states.get(name, {})
             state = node_data.get("state", "pending")
+
+            # Compacted overrides running/pending but not completed/failed/cancelled
+            if name in _compacted and state in ("running", "pending"):
+                state = "compacted"
+
             style = STATE_COLORS.get(state, STATE_COLORS["pending"])
 
             self.canvas.itemconfigure(ids["rect"],
@@ -919,7 +871,7 @@ class GraphRenderer:
             )
 
             if self.node_types.get(name) != "script":
-                model_label = _normalize_model_label(
+                model_label = normalize_model_label(
                     node_data.get("model") or self.node_models.get(name)
                 )
                 self.canvas.itemconfigure(
@@ -1099,10 +1051,12 @@ class GraphMonitorApp:
         self.run_dir = run_dir.resolve()
         self.plan_path = self.run_dir / "execution_plan.json"
         self.status_path = self.run_dir / "logs" / "status.json"
+        self.run_status_path = self.run_dir / "logs" / "run-status.md"
 
         self.plan: Optional[Dict[str, Any]] = None
         self._plan_mtime_ns: Optional[int] = None
         self.last_status: Optional[Dict[str, Any]] = None
+        self._compacted_agents: set = set()  # agents detected as compacted from run-status.md
         self._polling_active = True
 
         # -- Window setup --
@@ -1184,6 +1138,7 @@ class GraphMonitorApp:
                 self.renderer.update_states(
                     self.last_status.get("nodes", {}),
                     self.last_status.get("cycles", {}),
+                    compacted_agents=self._compacted_agents,
                 )
         else:
             self._update_waiting_pos()
@@ -1218,6 +1173,7 @@ class GraphMonitorApp:
             self.renderer.update_states(
                 self.last_status.get("nodes", {}),
                 self.last_status.get("cycles", {}),
+                compacted_agents=self._compacted_agents,
             )
         return True
 
@@ -1229,6 +1185,56 @@ class GraphMonitorApp:
             return json.loads(text)
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             return None
+
+    def _read_compaction_state(self) -> set:
+        """Parse run-status.md to find which agents have been compacted.
+
+        Returns a set of agent names whose Compacted column reads 'yes'.
+        Skips gracefully if the file does not exist or is unparseable.
+        """
+        compacted: set = set()
+        if not self.run_status_path.exists():
+            return compacted
+        try:
+            text = self.run_status_path.read_text(encoding="utf-8")
+        except OSError:
+            return compacted
+
+        lines = text.splitlines()
+
+        # Find the header row to locate the Compacted column index
+        header_idx = -1
+        compacted_col = -1
+        agent_col = -1
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("|") and "Agent" in stripped and "Compacted" in stripped:
+                header_idx = i
+                cols = [c.strip() for c in stripped.split("|")]
+                for ci, col in enumerate(cols):
+                    if col == "Agent":
+                        agent_col = ci
+                    elif col == "Compacted":
+                        compacted_col = ci
+                break
+
+        if header_idx < 0 or compacted_col < 0 or agent_col < 0:
+            return compacted
+
+        # Parse data rows (skip header and separator)
+        for line in lines[header_idx + 2:]:
+            stripped = line.strip()
+            if not stripped.startswith("|"):
+                continue
+            cols = [c.strip() for c in stripped.split("|")]
+            if len(cols) <= max(agent_col, compacted_col):
+                continue
+            agent_name = cols[agent_col].strip()
+            comp_val = cols[compacted_col].strip().lower()
+            if comp_val == "yes" and agent_name:
+                compacted.add(agent_name)
+
+        return compacted
 
     def _check_status_staleness(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """Detect stale status: if status.json hasn't been updated recently but
@@ -1291,6 +1297,9 @@ class GraphMonitorApp:
             self._schedule_poll()
             return
 
+        # Read compaction state from run-status.md (sidecar output)
+        self._compacted_agents = self._read_compaction_state()
+
         status = self._read_status()
         if status is not None:
             status = self._check_status_staleness(status)
@@ -1300,7 +1309,16 @@ class GraphMonitorApp:
             state = status.get("state", "")
             if state in ("completed", "failed"):
                 self._polling_active = False
+                self._save_final_render()
                 return
+
+        # Check for orchestrator exit signal
+        signal_file = self.run_dir / "logs" / "_save_and_exit"
+        if signal_file.exists():
+            self._save_final_render()
+            signal_file.unlink(missing_ok=True)
+            self.root.quit()
+            return
 
         self._schedule_poll()
 
@@ -1309,6 +1327,7 @@ class GraphMonitorApp:
         self.renderer.update_states(
             status.get("nodes", {}),
             status.get("cycles", {}),
+            compacted_agents=self._compacted_agents,
         )
 
         # Update status bar
@@ -1319,6 +1338,28 @@ class GraphMonitorApp:
 
         # Update events panel
         self.events_panel.update_events(status.get("events", []))
+
+    # -- Final render --
+
+    def _save_final_render(self) -> None:
+        """Save a PostScript render of the canvas to the run directory."""
+        out_path = self.run_dir / "run-final.ps"
+        try:
+            self.renderer.canvas.postscript(
+                file=str(out_path),
+                colormode="color",
+            )
+            # Try converting to PNG if PIL is available
+            try:
+                from PIL import Image
+                img = Image.open(str(out_path))
+                png_path = self.run_dir / "run-final.png"
+                img.save(str(png_path), "PNG")
+                out_path.unlink()
+            except ImportError:
+                pass  # Keep the .ps file if no PIL
+        except Exception:
+            pass  # Don't crash on screenshot failure
 
     # -- Timer (elapsed clock) --
 

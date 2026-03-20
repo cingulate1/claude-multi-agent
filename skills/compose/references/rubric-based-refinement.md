@@ -9,7 +9,7 @@
 - Which quality dimensions matter, or should the evaluator define them?
 - Are there any non-negotiable constraints or categories that matter far more than the rest?
 - Are there any oracles that should serve as the basis for defining the rubric?
-- What baseline pass threshold (1-5) is the user comfortable with? (Default: `3/5`)
+- What baseline pass threshold (1-5) is the user comfortable with? (Default: `5/5`)
 - Is the user fine with the default maximum round count? (`5`)
 
 ### Processing user feedback

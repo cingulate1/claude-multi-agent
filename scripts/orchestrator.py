@@ -17,9 +17,11 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from shared import read_agent_frontmatter, resolve_agent_path
 from status_tracking import RunStatusTracker
 
 PLUGIN_ROOT = Path(__file__).parent.parent
@@ -101,55 +103,6 @@ def unstage_agents(staged_files: list[Path]) -> None:
 # ---------------------------------------------------------------------------
 # Agent invocation
 # ---------------------------------------------------------------------------
-
-def _resolve_agent_path(run_dir: Path, agent_name: str, agent_file: str | None = None) -> Path | None:
-    """Resolve the markdown file that defines an agent."""
-    candidates = []
-    if agent_file:
-        candidates.extend([
-            run_dir / "agents" / agent_file,
-            PLUGIN_ROOT / "agents" / agent_file,
-        ])
-    candidates.extend([
-        run_dir / "agents" / f"{agent_name}.md",
-        PLUGIN_ROOT / "agents" / f"{agent_name}.md",
-    ])
-
-    seen = set()
-    for candidate in candidates:
-        key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def _read_agent_frontmatter(run_dir: Path, agent_name: str, agent_file: str | None = None) -> dict[str, str]:
-    """Parse simple YAML frontmatter from an agent markdown file."""
-    agent_path = _resolve_agent_path(run_dir, agent_name, agent_file)
-    if agent_path is None:
-        return {}
-
-    try:
-        lines = agent_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return {}
-
-    if not lines or lines[0].strip() != "---":
-        return {}
-
-    frontmatter: dict[str, str] = {}
-    for line in lines[1:]:
-        stripped = line.strip()
-        if stripped == "---":
-            break
-        if ":" not in stripped:
-            continue
-        key, value = stripped.split(":", 1)
-        frontmatter[key.strip().lower()] = value.strip()
-    return frontmatter
 
 
 def _normalize_tools_arg(raw_tools: str | None) -> str | None:
@@ -284,7 +237,7 @@ def _expand_dynamic_templates_for_node(
                 f"which exceeds the current cap of {max_dynamic_workers}"
             )
 
-        template_agent_path = _resolve_agent_path(
+        template_agent_path = resolve_agent_path(
             run_dir,
             template.get("template_name", "worker-template"),
             template.get("agent_template_file"),
@@ -409,7 +362,8 @@ def _build_agent_cmd(agent_name: str, run_dir: Path, agent_file: str | None = No
         "--no-session-persistence",
     ]
 
-    frontmatter = _read_agent_frontmatter(run_dir, agent_name, agent_file)
+    agent_path = resolve_agent_path(run_dir, agent_name, agent_file)
+    frontmatter = read_agent_frontmatter(agent_path) if agent_path else {}
 
     model = frontmatter.get("model")
     if model:
@@ -452,7 +406,7 @@ def run_agent(
     run_dir: Path,
     log_path: Path,
     agent_file: str | None = None,
-    timeout: int = None,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a Claude agent synchronously. Returns the CompletedProcess."""
     cmd = _build_agent_cmd(agent_name, run_dir, agent_file)
@@ -480,7 +434,7 @@ def run_script(
     log_path: Path,
     script: str,
     script_args: list[str] | None = None,
-    timeout: int = None,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a script node directly (no LLM agent). Returns the CompletedProcess."""
     script_path = run_dir / script
@@ -522,14 +476,18 @@ def run_agents_parallel(agents: list[dict], run_dir: Path, log_dir: Path) -> dic
         cmd = _build_agent_cmd(name, run_dir, agent.get("agent_file"))
         logging.info(f"  [parallel] {name}")
         fh = open(log_path, "w", encoding="utf-8")
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=fh,
-            stderr=subprocess.STDOUT,
-            env=_agent_env(),
-            cwd=str(run_dir),
-        )
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=fh,
+                stderr=subprocess.STDOUT,
+                env=_agent_env(),
+                cwd=str(run_dir),
+            )
+        except Exception:
+            fh.close()
+            raise
         procs[name] = proc
         log_handles[name] = fh
         log_paths[name] = log_path
@@ -559,8 +517,11 @@ def _run_self_loop(
     run_dir: Path,
     log_dir: Path,
     status: RunStatusTracker,
-) -> None:
-    """Execute a self-loop cycle: one agent invoked repeatedly until exit signal or max iterations."""
+) -> bool:
+    """Execute a self-loop cycle: one agent invoked repeatedly until exit signal or max iterations.
+
+    Returns True if the cycle completed successfully, False if the agent failed.
+    """
     agent_name = cycle["agent"]
     max_iter = cycle.get("max_iterations", 3)
     exit_signal = cycle.get("exit_signal_file")
@@ -593,12 +554,23 @@ def _run_self_loop(
             agent_file=node_entry.get("agent_file"),
         )
         if result.returncode != 0:
+            status.update_node_tokens(agent_name, iter_log)
+            status.unregister_active_logs(agent_name)
             status.set_node_state(agent_name, "failed")
             status.set_cycle_state(cycle_key, "failed")
-            raise RuntimeError(
+            status.add_error(
                 f"Self-loop agent '{agent_name}' exited with code "
                 f"{result.returncode} on iteration {i}"
             )
+            logging.warning(
+                f"[WARNING] Self-loop agent '{agent_name}' exited with code "
+                f"{result.returncode} on iteration {i}"
+            )
+            # Clean up signal file
+            signal_path = run_dir / "_final_round"
+            if signal_path.exists():
+                signal_path.unlink()
+            return False
         status.update_node_tokens(agent_name, iter_log)
         status.set_node_state(agent_name, "pending", iteration=i)
 
@@ -620,6 +592,7 @@ def _run_self_loop(
     status.unregister_active_logs(agent_name)
     status.set_node_state(agent_name, "completed")
     status.set_cycle_state(cycle_key, "completed", current_round=max_iter)
+    return True
 
 
 def _run_bipartite_cycle(
@@ -628,8 +601,11 @@ def _run_bipartite_cycle(
     run_dir: Path,
     log_dir: Path,
     status: RunStatusTracker,
-) -> None:
-    """Execute a bipartite cycle: alternating producer and evaluator."""
+) -> bool:
+    """Execute a bipartite cycle: alternating producer and evaluator.
+
+    Returns True if the cycle completed successfully, False if either agent failed.
+    """
     producer_name = cycle["producer"]
     evaluator_name = cycle["evaluator"]
     max_rounds = cycle.get("max_rounds", 5)
@@ -664,12 +640,25 @@ def _run_bipartite_cycle(
             agent_file=nodes_by_name[producer_name].get("agent_file"),
         )
         if result.returncode != 0:
+            status.update_node_tokens(producer_name, producer_log)
+            status.unregister_active_logs(producer_name)
+            status.unregister_active_logs(evaluator_name)
             status.set_node_state(producer_name, "failed")
+            status.set_node_state(evaluator_name, "cancelled")
             status.set_cycle_state(cycle_key, "failed")
-            raise RuntimeError(
+            status.add_error(
                 f"Cycle producer '{producer_name}' exited with code "
                 f"{result.returncode} on round {round_num}"
             )
+            logging.warning(
+                f"[WARNING] Cycle producer '{producer_name}' exited with code "
+                f"{result.returncode} on round {round_num}"
+            )
+            # Clean up signal file
+            signal_path = run_dir / "_final_round"
+            if signal_path.exists():
+                signal_path.unlink()
+            return False
         status.update_node_tokens(producer_name, producer_log)
         status.set_node_state(producer_name, "pending", iteration=round_num)
 
@@ -686,12 +675,26 @@ def _run_bipartite_cycle(
             agent_file=nodes_by_name[evaluator_name].get("agent_file"),
         )
         if result.returncode != 0:
+            status.update_node_tokens(evaluator_name, evaluator_log)
+            status.unregister_active_logs(producer_name)
+            status.unregister_active_logs(evaluator_name)
             status.set_node_state(evaluator_name, "failed")
             status.set_cycle_state(cycle_key, "failed")
-            raise RuntimeError(
+            status.add_error(
                 f"Cycle evaluator '{evaluator_name}' exited with code "
                 f"{result.returncode} on round {round_num}"
             )
+            logging.warning(
+                f"[WARNING] Cycle evaluator '{evaluator_name}' exited with code "
+                f"{result.returncode} on round {round_num}"
+            )
+            # Cycle is a unit — if it didn't complete, both nodes failed
+            status.set_node_state(producer_name, "failed")
+            # Clean up signal file
+            signal_path = run_dir / "_final_round"
+            if signal_path.exists():
+                signal_path.unlink()
+            return False
         status.update_node_tokens(evaluator_name, evaluator_log)
         status.set_node_state(evaluator_name, "pending", iteration=round_num)
 
@@ -721,6 +724,7 @@ def _run_bipartite_cycle(
     status.set_node_state(producer_name, "completed")
     status.set_node_state(evaluator_name, "completed")
     status.set_cycle_state(cycle_key, "completed")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -729,12 +733,14 @@ def _run_bipartite_cycle(
 
 def notify(title: str, message: str) -> None:
     """Fire a Windows toast notification."""
+    safe_title = title.replace("'", "''")
+    safe_message = message.replace("'", "''")
     ps_cmd = (
         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; "
         "$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
         "$nodes = $template.GetElementsByTagName('text'); "
-        f"$nodes.Item(0).AppendChild($template.CreateTextNode('{title}')) > $null; "
-        f"$nodes.Item(1).AppendChild($template.CreateTextNode('{message}')) > $null; "
+        f"$nodes.Item(0).AppendChild($template.CreateTextNode('{safe_title}')) > $null; "
+        f"$nodes.Item(1).AppendChild($template.CreateTextNode('{safe_message}')) > $null; "
         "$toast = [Windows.UI.Notifications.ToastNotification]::new($template); "
         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Claude Code').Show($toast)"
     )
@@ -749,8 +755,14 @@ def notify(title: str, message: str) -> None:
 # Main execution engine
 # ---------------------------------------------------------------------------
 
-def execute(plan_path: Path, gui: bool = True, geometry: str = None) -> None:
-    """Execute the full directed graph from an execution plan."""
+def execute(plan_path: Path, gui: bool = True, geometry: str = None) -> int:
+    """Execute the full directed graph from an execution plan.
+
+    Returns an exit code:
+      0 = all nodes completed successfully
+      1 = total failure (no nodes completed, or orchestrator-level error)
+      2 = partial completion (some succeeded, some failed/cancelled)
+    """
     with open(plan_path, encoding="utf-8") as f:
         plan = json.load(f)
 
@@ -786,11 +798,22 @@ def execute(plan_path: Path, gui: bool = True, geometry: str = None) -> None:
             env=_agent_env(),
         )
 
+    # Launch run_monitor sidecar
+    sidecar_proc = None
+    sidecar_script = PLUGIN_ROOT / "scripts" / "run_monitor.py"
+    if sidecar_script.exists():
+        sidecar_proc = subprocess.Popen(
+            [sys.executable, str(sidecar_script), "--run-dir", str(run_dir)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
     # Start live token polling
     status.start_token_polling()
 
+    exit_code = 0
     try:
-        _execute_graph(
+        completed, failed = _execute_graph(
             plan,
             plan_path,
             nodes,
@@ -805,19 +828,87 @@ def execute(plan_path: Path, gui: bool = True, geometry: str = None) -> None:
         if final_output:
             status.set_final_output(final_output)
 
-        status.set_state("completed", "All agents executed successfully")
-        status.append_event("Run completed successfully")
-        notify("multi-agent-graph Complete", f"Pattern: {pattern}")
+        if not failed:
+            status.set_state("completed", "All agents executed successfully")
+            status.append_event("Run completed successfully")
+            notify("multi-agent-graph Complete", f"Pattern: {pattern}")
+            exit_code = 0
+        elif not completed:
+            status.set_state("failed", "All nodes failed")
+            status.append_event("Run failed: no nodes completed successfully")
+            notify("multi-agent-graph Failed", "All nodes failed")
+            exit_code = 1
+        else:
+            summary = f"{len(completed)} succeeded, {len(failed)} failed/cancelled"
+            status.set_state("completed", f"Partial completion: {summary}")
+            status.append_event(f"Run partially completed: {summary}")
+            notify("multi-agent-graph Partial", summary)
+            exit_code = 2
 
     except Exception as e:
         status.add_error(str(e))
         status.set_state("failed", str(e))
         notify("multi-agent-graph Failed", str(e)[:100])
-        raise
+        exit_code = 1
 
     finally:
         status.stop_token_polling()
         unstage_agents(staged)
+        # Signal GUI to save final render, then clean up child processes
+        if monitor_proc and monitor_proc.poll() is None:
+            signal_file = run_dir / "logs" / "_save_and_exit"
+            signal_file.write_text("1")
+            try:
+                monitor_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                monitor_proc.terminate()
+        if sidecar_proc and sidecar_proc.poll() is None:
+            sidecar_proc.terminate()
+
+    return exit_code
+
+
+def _find_dependents(node_name: str, nodes: list[dict]) -> list[str]:
+    """Find all nodes that directly or transitively depend on a given node."""
+    # Build direct dependents map
+    direct_deps: dict[str, list[str]] = {}
+    for n in nodes:
+        for dep in n.get("depends_on", []):
+            direct_deps.setdefault(dep, []).append(n["name"])
+
+    # BFS to find all transitive dependents
+    dependents = []
+    visited = set()
+    queue = deque([node_name])
+    while queue:
+        current = queue.popleft()
+        for child in direct_deps.get(current, []):
+            if child not in visited:
+                visited.add(child)
+                dependents.append(child)
+                queue.append(child)
+    return dependents
+
+
+def _cancel_dependents(
+    failed_name: str,
+    nodes: list[dict],
+    completed: set,
+    failed_set: set,
+    status: RunStatusTracker,
+) -> list[str]:
+    """Cancel all unfinished nodes that depend (directly or transitively) on a failed node.
+
+    Returns the list of newly cancelled node names.
+    """
+    dependents = _find_dependents(failed_name, nodes)
+    cancelled = []
+    for dep_name in dependents:
+        if dep_name not in completed and dep_name not in failed_set:
+            status.set_node_state(dep_name, "cancelled")
+            failed_set.add(dep_name)
+            cancelled.append(dep_name)
+    return cancelled
 
 
 def _execute_graph(
@@ -830,9 +921,15 @@ def _execute_graph(
     log_dir: Path,
     status: RunStatusTracker,
     staged_files: list[Path],
-) -> None:
-    """Core graph execution loop."""
+) -> tuple[set, set]:
+    """Core graph execution loop.
+
+    Returns (completed_set, failed_set) where:
+      - completed_set contains names of nodes that succeeded
+      - failed_set contains names of nodes that failed or were cancelled
+    """
     completed = set()
+    failed_set = set()  # nodes that failed, were terminated, or were cancelled
     expanded_template_ids: set[str] = set()
 
     # Build set of all node names that participate in cycles
@@ -856,17 +953,52 @@ def _execute_graph(
     # Track which cycles have been executed (by cycle key)
     executed_cycles = set()
 
-    while len(completed) < len(nodes):
-        # Find nodes whose dependencies are all satisfied
-        ready = [
-            n for n in nodes
-            if n["name"] not in completed
-            and all(dep in completed for dep in n.get("depends_on", []))
-        ]
+    # The set of all "resolved" nodes (completed + failed + cancelled)
+    resolved = set()
+
+    while len(resolved) < len(nodes):
+        # Find nodes whose dependencies are all resolved (completed or cancelled)
+        # A node is "ready" if all its deps are completed (not just resolved —
+        # if a dep failed/cancelled, the node itself should be cancelled).
+        ready = []
+        newly_blocked = []
+        for n in nodes:
+            name = n["name"]
+            if name in resolved:
+                continue
+            deps = n.get("depends_on", [])
+            # Check if any dependency failed/cancelled
+            if any(dep in failed_set for dep in deps):
+                newly_blocked.append(n)
+                continue
+            # Check if all dependencies completed
+            if all(dep in completed for dep in deps):
+                ready.append(n)
+
+        # Cancel any nodes blocked by failed dependencies
+        for blocked_node in newly_blocked:
+            bname = blocked_node["name"]
+            if bname not in failed_set:
+                status.set_node_state(bname, "cancelled")
+                failed_set.add(bname)
+                resolved.add(bname)
+                logging.info(f"  Cancelled '{bname}' (dependency failed)")
+                status.append_event(f"Cancelled: {bname} (dependency failed)")
 
         if not ready:
-            remaining = [n["name"] for n in nodes if n["name"] not in completed]
-            raise RuntimeError(f"Deadlock — no nodes ready. Remaining: {remaining}")
+            # Check if we're genuinely stuck or just done
+            remaining = [n["name"] for n in nodes if n["name"] not in resolved]
+            if remaining:
+                # All remaining nodes have unresolved deps — cancel them
+                for n in nodes:
+                    if n["name"] not in resolved:
+                        status.set_node_state(n["name"], "cancelled")
+                        failed_set.add(n["name"])
+                        resolved.add(n["name"])
+                logging.warning(
+                    f"[WARNING] Remaining nodes cancelled due to unresolvable dependencies: {remaining}"
+                )
+            break
 
         # Separate into cycle entries and non-cycle nodes
         ready_cycles = []
@@ -889,13 +1021,55 @@ def _execute_graph(
         # Execute ready cycles
         for cycle_key, cycle in ready_cycles:
             if cycle["type"] == "self-loop":
-                node_entry = nodes_by_name[cycle["agent"]]
-                _run_self_loop(cycle, node_entry, run_dir, log_dir, status)
-                completed.add(cycle["agent"])
+                agent_name = cycle["agent"]
+                node_entry = nodes_by_name[agent_name]
+                success = _run_self_loop(cycle, node_entry, run_dir, log_dir, status)
+                if success:
+                    completed.add(agent_name)
+                    resolved.add(agent_name)
+                else:
+                    failed_set.add(agent_name)
+                    resolved.add(agent_name)
+                    cancelled = _cancel_dependents(agent_name, nodes, completed, failed_set, status)
+                    resolved.update(cancelled)
+                    if cancelled:
+                        logging.warning(
+                            f"[WARNING] Agent '{agent_name}' exited with failure; "
+                            f"dependent nodes {cancelled} cancelled"
+                        )
+                    else:
+                        logging.warning(
+                            f"[WARNING] Agent '{agent_name}' exited with failure; "
+                            f"no dependents affected"
+                        )
+
             elif cycle["type"] == "bipartite":
-                _run_bipartite_cycle(cycle, nodes_by_name, run_dir, log_dir, status)
-                completed.add(cycle["producer"])
-                completed.add(cycle["evaluator"])
+                producer = cycle["producer"]
+                evaluator = cycle["evaluator"]
+                success = _run_bipartite_cycle(cycle, nodes_by_name, run_dir, log_dir, status)
+                if success:
+                    completed.add(producer)
+                    completed.add(evaluator)
+                    resolved.add(producer)
+                    resolved.add(evaluator)
+                else:
+                    # At least one of them failed — both are in failed_set
+                    # (the cycle function already set their states)
+                    failed_set.add(producer)
+                    failed_set.add(evaluator)
+                    resolved.add(producer)
+                    resolved.add(evaluator)
+                    # Cancel dependents of both
+                    all_cancelled = []
+                    for failed_name in (producer, evaluator):
+                        cancelled = _cancel_dependents(failed_name, nodes, completed, failed_set, status)
+                        resolved.update(cancelled)
+                        all_cancelled.extend(cancelled)
+                    if all_cancelled:
+                        logging.warning(
+                            f"[WARNING] Bipartite cycle {producer}<->{evaluator} failed; "
+                            f"dependent nodes {all_cancelled} cancelled"
+                        )
 
         # Group non-cycle ready nodes by parallel_group
         groups: dict[str | None, list[dict]] = {}
@@ -907,14 +1081,15 @@ def _execute_graph(
             if len(group_nodes) == 1:
                 # Single node — run sequentially
                 node = group_nodes[0]
-                status.set_node_state(node["name"], "running")
-                status.set_activity(f"Running: {node['name']}")
+                name = node["name"]
+                status.set_node_state(name, "running")
+                status.set_activity(f"Running: {name}")
 
-                agent_log = log_dir / f"{node['name']}.log"
-                status.register_active_log(node["name"], agent_log)
+                agent_log = log_dir / f"{name}.log"
+                status.register_active_log(name, agent_log)
                 if node.get("node_type") == "script":
                     result = run_script(
-                        node["name"],
+                        name,
                         run_dir,
                         agent_log,
                         node["script"],
@@ -922,30 +1097,54 @@ def _execute_graph(
                     )
                 else:
                     result = run_agent(
-                        node["name"],
+                        name,
                         run_dir,
                         agent_log,
                         agent_file=node.get("agent_file"),
                     )
+
                 if result.returncode != 0:
-                    status.set_node_state(node["name"], "failed")
-                    raise RuntimeError(
-                        f"Node '{node['name']}' exited with code {result.returncode}"
-                    )
+                    if node.get("node_type") != "script":
+                        status.update_node_tokens(name, agent_log)
+                    status.unregister_active_logs(name)
+                    status.set_node_state(name, "failed")
+                    failed_set.add(name)
+                    resolved.add(name)
+                    status.add_error(f"Node '{name}' exited with code {result.returncode}")
+                    # Cancel dependents
+                    cancelled = _cancel_dependents(name, nodes, completed, failed_set, status)
+                    resolved.update(cancelled)
+                    if cancelled:
+                        logging.warning(
+                            f"[WARNING] Agent '{name}' exited with code {result.returncode}; "
+                            f"dependent nodes {cancelled} cancelled"
+                        )
+                        status.append_event(
+                            f"Failed: {name} (code {result.returncode}); cancelled {cancelled}"
+                        )
+                    else:
+                        logging.warning(
+                            f"[WARNING] Agent '{name}' exited with code {result.returncode}; "
+                            f"no dependents affected"
+                        )
+                        status.append_event(f"Failed: {name} (code {result.returncode})")
+                    continue
+
                 if node.get("node_type") != "script":
-                    status.update_node_tokens(node["name"], agent_log)
-                status.unregister_active_logs(node["name"])
+                    status.update_node_tokens(name, agent_log)
+                status.unregister_active_logs(name)
 
                 # Verify outputs
                 for expected in node.get("outputs", []):
                     if not (run_dir / expected).exists():
                         logging.warning(f"Expected output missing: {expected}")
 
-                status.set_node_state(node["name"], "completed")
-                completed.add(node["name"])
-                status.append_event(f"Completed: {node['name']}")
+                status.set_node_state(name, "completed")
+                completed.add(name)
+                resolved.add(name)
+                status.append_event(f"Completed: {name}")
                 _expand_dynamic_templates_for_node(
-                    source_node=node["name"],
+                    source_node=name,
                     plan=plan,
                     plan_path=plan_path,
                     run_dir=run_dir,
@@ -977,14 +1176,36 @@ def _execute_graph(
 
                     for name, rc in results.items():
                         if rc != 0:
+                            status.update_node_tokens(name, log_dir / f"{name}.log")
+                            status.unregister_active_logs(name)
                             status.set_node_state(name, "failed")
-                            raise RuntimeError(
-                                f"Agent '{name}' exited with code {rc}"
-                            )
+                            failed_set.add(name)
+                            resolved.add(name)
+                            status.add_error(f"Agent '{name}' exited with code {rc}")
+                            # Cancel dependents
+                            cancelled = _cancel_dependents(name, nodes, completed, failed_set, status)
+                            resolved.update(cancelled)
+                            if cancelled:
+                                logging.warning(
+                                    f"[WARNING] Agent '{name}' exited with code {rc}; "
+                                    f"dependent nodes {cancelled} cancelled"
+                                )
+                                status.append_event(
+                                    f"Failed: {name} (code {rc}); cancelled {cancelled}"
+                                )
+                            else:
+                                logging.warning(
+                                    f"[WARNING] Agent '{name}' exited with code {rc}; "
+                                    f"no dependents affected"
+                                )
+                                status.append_event(f"Failed: {name} (code {rc})")
+                            continue
+
                         status.update_node_tokens(name, log_dir / f"{name}.log")
                         status.unregister_active_logs(name)
                         status.set_node_state(name, "completed")
                         completed.add(name)
+                        resolved.add(name)
                         status.append_event(f"Completed: {name}")
                         _expand_dynamic_templates_for_node(
                             source_node=name,
@@ -999,25 +1220,46 @@ def _execute_graph(
                         )
 
                 for node in script_group:
-                    status.set_node_state(node["name"], "running")
-                    status.set_activity(f"Running script: {node['name']}")
-                    script_log = log_dir / f"{node['name']}.log"
-                    status.register_active_log(node["name"], script_log)
+                    sname = node["name"]
+                    status.set_node_state(sname, "running")
+                    status.set_activity(f"Running script: {sname}")
+                    script_log = log_dir / f"{sname}.log"
+                    status.register_active_log(sname, script_log)
                     result = run_script(
-                        node["name"], run_dir, script_log, node["script"],
+                        sname, run_dir, script_log, node["script"],
                         script_args=node.get("script_args"),
                     )
                     if result.returncode != 0:
-                        status.set_node_state(node["name"], "failed")
-                        raise RuntimeError(
-                            f"Script '{node['name']}' exited with code {result.returncode}"
-                        )
-                    status.unregister_active_logs(node["name"])
-                    status.set_node_state(node["name"], "completed")
-                    completed.add(node["name"])
-                    status.append_event(f"Completed: {node['name']}")
+                        status.unregister_active_logs(sname)
+                        status.set_node_state(sname, "failed")
+                        failed_set.add(sname)
+                        resolved.add(sname)
+                        status.add_error(f"Script '{sname}' exited with code {result.returncode}")
+                        cancelled = _cancel_dependents(sname, nodes, completed, failed_set, status)
+                        resolved.update(cancelled)
+                        if cancelled:
+                            logging.warning(
+                                f"[WARNING] Script '{sname}' exited with code {result.returncode}; "
+                                f"dependent nodes {cancelled} cancelled"
+                            )
+                            status.append_event(
+                                f"Failed: {sname} (code {result.returncode}); cancelled {cancelled}"
+                            )
+                        else:
+                            logging.warning(
+                                f"[WARNING] Script '{sname}' exited with code {result.returncode}; "
+                                f"no dependents affected"
+                            )
+                            status.append_event(f"Failed: {sname} (code {result.returncode})")
+                        continue
+
+                    status.unregister_active_logs(sname)
+                    status.set_node_state(sname, "completed")
+                    completed.add(sname)
+                    resolved.add(sname)
+                    status.append_event(f"Completed: {sname}")
                     _expand_dynamic_templates_for_node(
-                        source_node=node["name"],
+                        source_node=sname,
                         plan=plan,
                         plan_path=plan_path,
                         run_dir=run_dir,
@@ -1028,7 +1270,12 @@ def _execute_graph(
                         expanded_template_ids=expanded_template_ids,
                     )
 
-    logging.info("All nodes completed")
+    if failed_set:
+        logging.info(f"Execution finished with failures: {sorted(failed_set)}")
+    else:
+        logging.info("All nodes completed")
+
+    return completed, failed_set
 
 
 # ---------------------------------------------------------------------------
@@ -1062,17 +1309,14 @@ def main():
     logging.info(f"Plugin root: {PLUGIN_ROOT}")
 
     try:
-        execute(plan_path, gui=not args.no_gui, geometry=args.geometry)
+        exit_code = execute(plan_path, gui=not args.no_gui, geometry=args.geometry)
+        sys.exit(exit_code)
     except subprocess.TimeoutExpired as e:
-        logging.exception(f"Agent timed out: {e}")
+        logging.error(f"Agent timed out: {e}")
         notify("multi-agent-graph Failed", "Agent timed out")
         sys.exit(1)
-    except RuntimeError as e:
-        logging.exception(f"Execution failed: {e}")
-        notify("multi-agent-graph Failed", str(e)[:100])
-        sys.exit(1)
     except Exception as e:
-        logging.exception(f"Unexpected failure: {e}")
+        logging.error(f"Unexpected failure: {e}")
         notify("multi-agent-graph Failed", str(e)[:100])
         sys.exit(1)
 

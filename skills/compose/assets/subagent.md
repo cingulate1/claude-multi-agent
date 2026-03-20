@@ -8,7 +8,3 @@ model:
 # {NAME}
 
 {PLACEHOLDER_PERSONA}
-
-## Output Format
-
-{PLACEHOLDER_OUTPUT_FORMAT}

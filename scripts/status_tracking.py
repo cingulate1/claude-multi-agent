@@ -15,38 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from shared import agent_path_candidates, normalize_model_label, read_agent_frontmatter
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
-
-def _agent_path_candidates(run_dir: Path, agent_file: str) -> List[Path]:
-    """Return plausible paths for an agent markdown reference.
-
-    Execution plans may store agent files either as bare filenames
-    (``classicist.md``) or as run-relative paths (``agents/classicist.md``).
-    """
-    plugin_root = Path(__file__).resolve().parent.parent
-    raw = Path(agent_file)
-    candidates: List[Path] = []
-
-    if raw.is_absolute():
-        candidates.append(raw)
-    else:
-        candidates.append(run_dir / raw)
-        candidates.append(plugin_root / raw)
-        candidates.append(run_dir / "agents" / raw.name)
-        candidates.append(plugin_root / "agents" / raw.name)
-
-    seen = set()
-    unique: List[Path] = []
-    for candidate in candidates:
-        key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(candidate)
-    return unique
 
 
 class RunStatusTracker:
@@ -193,46 +166,11 @@ class RunStatusTracker:
         if not agent_file:
             return "Unknown"
 
-        for candidate in _agent_path_candidates(self.run_dir, agent_file):
-            raw_model = self._read_frontmatter_model(candidate)
+        for candidate in agent_path_candidates(self.run_dir, agent_file):
+            raw_model = read_agent_frontmatter(candidate).get("model")
             if raw_model:
-                return self._normalize_model_label(raw_model)
+                return normalize_model_label(raw_model)
         return "Unknown"
-
-    @staticmethod
-    def _read_frontmatter_model(agent_path: Path) -> Optional[str]:
-        try:
-            lines = agent_path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            return None
-
-        if not lines or lines[0].strip() != "---":
-            return None
-
-        for line in lines[1:]:
-            stripped = line.strip()
-            if stripped == "---":
-                break
-            if ":" not in stripped:
-                continue
-            key, value = stripped.split(":", 1)
-            if key.strip().lower() == "model":
-                return value.strip()
-        return None
-
-    @staticmethod
-    def _normalize_model_label(raw_model: Optional[str]) -> str:
-        if not raw_model:
-            return "Unknown"
-
-        lower = raw_model.strip().lower()
-        if "haiku" in lower:
-            return "Haiku"
-        if "sonnet" in lower:
-            return "Sonnet"
-        if "opus" in lower:
-            return "Opus"
-        return raw_model.strip()
 
     def set_node_state(
         self,
@@ -251,7 +189,7 @@ class RunStatusTracker:
             ts = _now_iso()
             if state == "running" and not node["started_at"]:
                 node["started_at"] = ts
-            elif state in ("completed", "failed"):
+            elif state in ("completed", "failed", "cancelled", "terminated"):
                 node["completed_at"] = ts
             self._write_locked()
 
