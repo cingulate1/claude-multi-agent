@@ -27,3 +27,4 @@ Thumbs.db
 
 # Dropbox sync artifacts
 .tmp.*
+TESTING-STATE.md
