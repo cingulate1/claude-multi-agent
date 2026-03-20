@@ -50,11 +50,11 @@ Analyze this from your specific perspective. Focus on what your lens sees that o
 
 ## Output
 
-Write your analysis to {OUTPUT_PATH}.
-
 {OUTPUT_FORMAT}
 
 Do not read any other agent's output.
+
+Write your analysis to {OUTPUT_PATH}.
 ```
 
 ## Agent Prompt: Integrator
@@ -83,7 +83,7 @@ Also read the original context:
 
 ## Output
 
-Write the integrated synthesis to {OUTPUT_PATH}.
-
 {OUTPUT_FORMAT}
+
+Write the integrated synthesis to {OUTPUT_PATH}.
 ```

@@ -23,6 +23,7 @@ from pathlib import Path
 
 from shared import read_agent_frontmatter, resolve_agent_path
 from status_tracking import RunStatusTracker
+from validate_prompts import validate_all
 
 PLUGIN_ROOT = Path(__file__).parent.parent
 AGENT_TIMEOUT = 1800  # 30 minutes per agent invocation
@@ -775,6 +776,16 @@ def execute(plan_path: Path, gui: bool = True, geometry: str = None) -> int:
     nodes_by_name = {n["name"]: n for n in nodes}
     log_dir = run_dir / "logs"
     log_dir.mkdir(exist_ok=True)
+
+    # Validate prompts before launching any agents
+    success, validation_errors = validate_all(plan_path)
+    if not success:
+        msg = "Prompt validation failed:\n"
+        for err in validation_errors:
+            msg += f"  {err}\n"
+        msg += "\nMake sure the final line of each prompt follows the format: Write your output to <absolute_path>"
+        print(msg, file=sys.stderr)
+        return 1
 
     # Initialize status tracking
     status = RunStatusTracker(run_dir)

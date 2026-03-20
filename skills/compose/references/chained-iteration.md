@@ -62,7 +62,7 @@ Your output must satisfy the following:
 
 ## Output
 
-Write your artifact to {ARTIFACT_PATH}.
-
 {OUTPUT_FORMAT}
+
+Write your artifact to {ARTIFACT_PATH}.
 ```

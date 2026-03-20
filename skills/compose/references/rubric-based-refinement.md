@@ -113,9 +113,9 @@ The generator prompt must not mention rubrics, scores, or evaluation criteria.
 
 ## Output
 
-Write your artifact to {ARTIFACT_PATH}.
-
 {OUTPUT_FORMAT}
+
+Write your artifact to {ARTIFACT_PATH}.
 ```
 
 ## Evaluator Prompt Templates
@@ -190,10 +190,10 @@ Otherwise: do NOT write the flag.
 
 ## Output
 
-Write your evaluation to output/evaluation-feedback_{COUNTER}.md.
-
 Format:
 - Per-dimension score (e.g., `Coherence: 2/5`)
 - Explanatory guidance for each dimension as complete sentences
 - Do not mention the word "rubric" in the feedback
+
+Write your evaluation to output/evaluation-feedback_{COUNTER}.md.
 ```

@@ -52,8 +52,6 @@ Break this task into independent assignments that can be executed in parallel. F
 
 ## Output
 
-Write the assignment manifest to output/assignments.json.
-
 Format:
 [
   {
@@ -62,6 +60,8 @@ Format:
     "output": "output/{identifier}.md"
   }
 ]
+
+Write the assignment manifest to output/assignments.json.
 ```
 
 ## Agent Prompt: Worker
@@ -77,7 +77,7 @@ One prompt file per worker. Workers should contain only their assigned subtask.
 
 ## Output
 
-Write your result to {OUTPUT_PATH}.
-
 {OUTPUT_FORMAT}
+
+Write your result to {OUTPUT_PATH}.
 ```

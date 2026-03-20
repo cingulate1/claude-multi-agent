@@ -133,14 +133,14 @@ Analyze this question independently. Present your reasoned argument, then state 
 
 ## Output
 
-Write your response to {OUTPUT_PATH}.
-
 Your response must end with a clearly delimited answer block:
 
 ## Final Answer
 [Your answer here]
 
 All reasoning and analysis appears above the Final Answer block.
+
+Write your response to {OUTPUT_PATH}.
 ```
 
 ## Agent Prompt: Debate Round Panelist
@@ -169,12 +169,12 @@ You may not rely on conformity. If you cannot determine whether others are corre
 
 ## Output
 
-Write your response to {OUTPUT_PATH}.
-
 Your response must end with:
 
 ## Final Answer
 [Your answer here]
+
+Write your response to {OUTPUT_PATH}
 ```
 
 ## Panelist Blindness

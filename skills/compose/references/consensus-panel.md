@@ -52,11 +52,11 @@ Produce your independent analysis from your perspective. Write what you believe 
 
 ## Output
 
-Write your response to {OUTPUT_PATH}.
-
 {OUTPUT_FORMAT}
 
 Do not read any other agent's output.
+
+Write your response to {OUTPUT_PATH}.
 ```
 
 ## Agent Prompt: Refinement Panelist
@@ -84,9 +84,9 @@ Revise your recommendations:
 
 ## Output
 
-Write your revised response to {OUTPUT_PATH}.
-
 {OUTPUT_FORMAT}
+
+Write your revised response to {OUTPUT_PATH}.
 ```
 
 ## Agent Prompt: Synthesizer
@@ -115,7 +115,7 @@ Also read the original context:
 
 ## Output
 
-Write the consensus synthesis to {OUTPUT_PATH}.
-
 {OUTPUT_FORMAT}
+
+Write the consensus synthesis to {OUTPUT_PATH}.
 ```

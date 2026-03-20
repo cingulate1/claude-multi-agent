@@ -84,9 +84,9 @@ You are {PERSONA_DESCRIPTION}.
 
 ## Output
 
-Write your response to {OUTPUT_PATH}.
-
 {OUTPUT_FORMAT — what the output should contain and how it should be structured}
+
+Write your response to {OUTPUT_PATH}.
 ```
 
 The prompt must be self-contained. The agent has no conversation history — this prompt is its entire world. Include everything it needs to do its job: what files to read, what to produce, where to write it.

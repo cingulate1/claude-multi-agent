@@ -63,9 +63,9 @@ If hidden-methodology is active, the generator prompt must not mention the frame
 
 ## Output
 
-Write your artifact to {ARTIFACT_PATH}.
-
 {OUTPUT_FORMAT}
+
+Write your artifact to {ARTIFACT_PATH}.
 ```
 
 ## Agent Prompt: Evaluator
@@ -110,12 +110,12 @@ After completing both tiers in full, decide:
 
 ## Output
 
-Write your evaluation to output/evaluation-feedback.md.
-
 For every issue found in either tier, state:
 1. What is wrong
 2. Where the relevant source material is
 3. What the generator should do differently
+
+Write your evaluation to output/evaluation-feedback.md.
 ```
 
 ## Hard Boundary for Evaluator-Only or Hidden-Methodology Setups

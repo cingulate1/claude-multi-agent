@@ -222,17 +222,15 @@ Cycle format (bipartite):
 }
 ```
 
-### Validate Prompts
+### Prompt Output Line
 
-After writing all prompts and the execution plan, run the prompt validator:
+Every agent prompt must end with the line:
 
-```bash
-python "{PLUGIN_ROOT}/scripts/validate_prompts.py" --plan "{run_dir}/execution_plan.json"
+```
+Write your output to {absolute_output_path}
 ```
 
-This checks that each agent's prompt file contains the absolute output path from the execution plan in its final lines. If any prompt fails validation, rewrite its last line to include a clear, direct instruction specifying the exact file path to write to — e.g., `Write your output to D:\path\to\output\agent-name.md`
-
-Do not proceed to launch until all prompts pass validation.
+This is validated automatically by the orchestrator at launch time. If any prompt is missing this line or has a mismatched path, the orchestrator will abort before launching any agents.
 
 ### Launch Orchestrator
 
