@@ -160,9 +160,13 @@ export default function App() {
 
   const previewState = usePreview(previewPath);
   const selectedNode = selectedNodeId ? graph.nodeLookup[selectedNodeId] : null;
-  const timeline = useMemo(
+  const nodeTimeline = useMemo(
     () => filterTimelineEvents(snapshot?.timeline, selectedNodeId, showHeartbeats),
     [selectedNodeId, showHeartbeats, snapshot?.timeline],
+  );
+  const globalTimeline = useMemo(
+    () => filterTimelineEvents(snapshot?.timeline, null, showHeartbeats),
+    [showHeartbeats, snapshot?.timeline],
   );
 
   return (
@@ -245,7 +249,7 @@ export default function App() {
         <div className="sidebar-stack">
           <InspectorPanel
             selectedNode={selectedNode}
-            timeline={timeline}
+            timeline={nodeTimeline}
             previewPath={previewPath}
             preview={
               previewState.loading
@@ -261,8 +265,8 @@ export default function App() {
             onToggleCollapsed={() => setInspectorOpen((v) => !v)}
           />
           <TimelinePanel
-            events={timeline}
-            selectedNodeId={selectedNodeId}
+            events={globalTimeline}
+            selectedNodeId={null}
             showHeartbeats={showHeartbeats}
             onToggleHeartbeats={() => setShowHeartbeats((current) => !current)}
             onSelectNode={setSelectedNodeId}
