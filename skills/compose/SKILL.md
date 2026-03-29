@@ -9,9 +9,9 @@ This skill instructs Claude on how to guide the user through setting up a multi-
 
 ## Phase 0: Load Plugin Configuration
 
-Before asking the user anything, check for saved settings. The plugin data directory is derived from the plugin ID: `~/.claude/plugins/data/claude-multi-agent-cingulate1-marketplace/`.
+Before asking the user anything, check for saved settings. The plugin data directory is derived from the plugin ID: `~/.claude/plugins/data/multi-agent-graph-cingulate1-marketplace/`.
 
-1. Try to read `~/.claude/plugins/data/claude-multi-agent-cingulate1-marketplace/config.json`. Store this path as `{data_dir}/config.json`.
+1. Try to read `~/.claude/plugins/data/multi-agent-graph-cingulate1-marketplace/config.json`. Store this path as `{data_dir}/config.json`.
 2. If the file exists and contains a `run_directory` value and `prompt_for_directory` is `false`: store the run directory for use in Phase 2. You will not need to ask the user about it.
 3. Otherwise (file missing, `prompt_for_directory` is `true`, or key absent): you will ask the user during Phase 1.
 
@@ -39,7 +39,7 @@ Otherwise, ask the user:
 
 After the user provides a directory:
 - Ask if they want to save this as their default for future runs (skipping this question next time).
-- If yes, write `~/.claude/plugins/data/claude-multi-agent-cingulate1-marketplace/config.json`:
+- If yes, write `~/.claude/plugins/data/multi-agent-graph-cingulate1-marketplace/config.json`:
   ```json
   {
     "run_directory": "<user's choice>",

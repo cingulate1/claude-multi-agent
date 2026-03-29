@@ -36,7 +36,7 @@ def _plugin_name() -> str:
         data = json.loads(manifest.read_text(encoding="utf-8"))
         return data["name"]
     except (OSError, json.JSONDecodeError, KeyError):
-        return "claude-multi-agent"
+        return "multi-agent-graph"
 
 
 PLUGIN_NAME = _plugin_name()

@@ -1,12 +1,12 @@
 {
-  "name": "claude-multi-agent",
-  "version": "1.7.1",
+  "name": "multi-agent-graph",
+  "version": "2.0.0",
   "description": "A Claude plugin that designs and then autonomously executes multi-agent workflows as directed graphs. Comes with 7 built-in patterns, but the user is free to define their own by explaining it to Claude within the plugin.",
   "author": {
     "name": "cingulate1"
   },
-  "homepage": "https://github.com/cingulate1/claude-multi-agent",
-  "repository": "https://github.com/cingulate1/claude-multi-agent",
+  "homepage": "https://github.com/cingulate1/multi-agent-graph",
+  "repository": "https://github.com/cingulate1/multi-agent-graph",
   "license": "MIT",
   "keywords": [
     "multi-agent",
