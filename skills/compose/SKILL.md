@@ -171,6 +171,36 @@ For each agent, write a prompt file to `{run_dir}/agents/{agent-name}-prompt.txt
 
 These prompt files are passed to the agent via `-p` when the orchestrator invokes it. They are the agent's only source of task context — the agent has no other conversation history.
 
+#### ⚠ Mandatory Final Line — Exact-Match Validated
+
+**Every prompt file MUST end with this line, verbatim:**
+
+```
+Write your output to {ABSOLUTE_OUTPUT_PATH}
+```
+
+This is not a guideline. `scripts/validate_prompts.py` runs automatically at orchestrator launch and aborts the entire run if any prompt violates these rules:
+
+1. **Exact phrase.** The line must begin with the literal string `Write your output to ` (trailing space included). Not "Write your response to", "Write your analysis to", "Write your artifact to", "Write the synthesis to", or any other variation. The validator regex is `^Write your output to .+$`.
+2. **Absolute path.** `{ABSOLUTE_OUTPUT_PATH}` must be the fully-resolved absolute path to the agent's output file. Not `output/foo.md`, not `{run_dir}/output/foo.md` — the complete absolute path computed as `{run_directory}/{YYMMDD}_{slug}/output/{filename}`. Forward or back slashes are both accepted.
+3. **No trailing period.** The regex accepts a period, but the validator then extracts everything after "Write your output to " as the path and compares it to the plan — a trailing period becomes part of the path and causes a mismatch.
+4. **Must be the last non-empty line.** Trailing blank lines are fine; any other non-empty content after this line is not.
+5. **Path must match `outputs[0]` in the execution plan node** for this agent, resolved to an absolute path. Write the execution plan and the prompts together and use the same path in both.
+
+Examples:
+
+| | Prompt last line |
+|---|---|
+| ✅ | `Write your output to D:/Dropbox/runs/260409_task/output/researcher-a.md` |
+| ✅ | `Write your output to D:\Dropbox\runs\260409_task\output\researcher-a.md` |
+| ❌ | `Write your response to D:/Dropbox/runs/260409_task/output/researcher-a.md` (wrong phrase) |
+| ❌ | `Write your output to output/researcher-a.md` (relative path) |
+| ❌ | `Write your output to D:/Dropbox/runs/260409_task/output/researcher-a.md.` (trailing period) |
+
+Every pattern reference's prompt templates already end with the canonical line using the `{ABSOLUTE_OUTPUT_PATH}` placeholder. Substitute the placeholder with the computed absolute path; do not rewrite the surrounding text.
+
+#### Fill In Agent Files
+
 After writing all prompts, fill in the body of each agent's `.md` file:
 - Replace `{NAME}` with the agent's display name
 - Replace `{PLACEHOLDER_PERSONA}` with a brief persona reinforcing the agent's role from the prompt
@@ -221,16 +251,6 @@ Cycle format (bipartite):
   "exit_signal_file": "output/evaluation-pass.flag"
 }
 ```
-
-### Prompt Output Line
-
-Every agent prompt must end with the line:
-
-```
-Write your output to {absolute_output_path}
-```
-
-This is validated automatically by the orchestrator at launch time. If any prompt is missing this line or has a mismatched path, the orchestrator will abort before launching any agents.
 
 ### Launch Orchestrator
 

@@ -98,6 +98,8 @@ Create one bipartite cycle between generator and evaluator:
 
 The generator prompt must not mention rubrics, scores, or evaluation criteria.
 
+Note: The final line below is validator-enforced — substitute only the path placeholder, preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule.
+
 ```
 ## Task
 
@@ -115,7 +117,7 @@ The generator prompt must not mention rubrics, scores, or evaluation criteria.
 
 {OUTPUT_FORMAT}
 
-Write your artifact to {ARTIFACT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Evaluator Prompt Templates
@@ -125,6 +127,8 @@ The evaluator agent file is used for both the `evaluator-init` node and the `eva
 ### Evaluator-Init Prompt (Scenario 1 — Full Rubric Provided)
 
 In Scenario 1, `output/rubric.md` already exists (written by Claude during Phase 2). The init step validates it.
+
+Note: The final line below is validator-enforced — substitute only the path placeholder, preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule.
 
 ```
 ## Task
@@ -140,12 +144,16 @@ Do not evaluate any artifact. Your only task is rubric validation.
 
 ## Output
 
-Write a brief validation summary to output/rubric-validation.md noting any adjustments made.
+A brief validation summary noting any adjustments made to the rubric.
+
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ### Evaluator-Init Prompt (Scenario 2 — Rubric Not Fully Specified)
 
 In Scenario 2, `output/rubric-draft.md` exists (a seed with partial criteria and task context). The init step creates the full rubric.
+
+Note: The final line below is validator-enforced — substitute only the path placeholder, preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule. The evaluator-init node's `ABSOLUTE_OUTPUT_PATH` should resolve to the run's `output/rubric.md` file.
 
 ```
 ## Task
@@ -165,17 +173,21 @@ Do not evaluate any artifact. Your only task is rubric creation.
 
 ## Output
 
-Write the completed rubric to output/rubric.md.
+The completed rubric.
+
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ### Evaluator Cycle Prompt (Both Scenarios)
 
 Used for every cycle invocation of the evaluator after init completes. The rubric at `output/rubric.md` is guaranteed to exist at this point.
 
+Note: The final line below is validator-enforced — substitute only the path placeholder, preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule. `{GENERATOR_OUTPUT_PATH}` is the generator's absolute output path; `{ABSOLUTE_OUTPUT_PATH}` is the evaluator's own absolute output path for this cycle iteration (e.g., `.../output/evaluation-feedback_1.md` on round 1). The orchestrator rewrites this prompt per round with the correct counter-stamped filename.
+
 ```
 ## Task
 
-Evaluate the artifact at {ARTIFACT_PATH} against the rubric at output/rubric.md.
+Evaluate the artifact at {GENERATOR_OUTPUT_PATH} against the rubric at output/rubric.md.
 
 ## Evaluation Procedure
 
@@ -195,5 +207,5 @@ Format:
 - Explanatory guidance for each dimension as complete sentences
 - Do not mention the word "rubric" in the feedback
 
-Write your evaluation to output/evaluation-feedback_{COUNTER}.md.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```

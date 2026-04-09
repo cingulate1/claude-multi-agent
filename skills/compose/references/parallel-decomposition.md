@@ -36,6 +36,10 @@
 
 `final_output`: Set to `output/assignments.json` (the manifest). The individual worker outputs are referenced within it.
 
+## Agent Prompt Templates
+
+Note: Every template below ends with the validator-enforced line `Write your output to {ABSOLUTE_OUTPUT_PATH}`. Substitute only the path placeholder; preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule. The decomposer's `ABSOLUTE_OUTPUT_PATH` should resolve to the run's `output/assignments.json`; each worker's resolves to its own `output/{identifier}.md`.
+
 ## Agent Prompt: Decomposer
 
 ```
@@ -52,7 +56,8 @@ Break this task into independent assignments that can be executed in parallel. F
 
 ## Output
 
-Format:
+A JSON assignment manifest in this format:
+
 [
   {
     "name": "{identifier}",
@@ -61,7 +66,7 @@ Format:
   }
 ]
 
-Write the assignment manifest to output/assignments.json.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Agent Prompt: Worker
@@ -79,5 +84,5 @@ One prompt file per worker. Workers should contain only their assigned subtask.
 
 {OUTPUT_FORMAT}
 
-Write your result to {OUTPUT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```

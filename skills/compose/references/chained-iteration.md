@@ -39,6 +39,8 @@ Use a different pattern if quality is subjective (`rubric-based`), facts need so
 
 ## Agent Prompt: Writer/Refiner
 
+Note: The final line below is validator-enforced — substitute only the path placeholder, preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule.
+
 ```
 ## Task
 
@@ -53,7 +55,7 @@ Your output must satisfy the following:
 
 ## Procedure
 
-1. Check if a prior draft exists at {ARTIFACT_PATH}. If so, read it and the constraint check results.
+1. Check if a prior draft exists at {ABSOLUTE_OUTPUT_PATH}. If so, read it and the constraint check results.
 2. If no prior draft exists, produce the initial version.
 3. If a prior draft exists, make surgical revisions to address the specific constraint violations. Do not replace good content wholesale.
 4. After writing/revising, verify the constraint yourself.
@@ -64,5 +66,5 @@ Your output must satisfy the following:
 
 {OUTPUT_FORMAT}
 
-Write your artifact to {ARTIFACT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```

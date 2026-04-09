@@ -34,6 +34,10 @@
 
 `final_output`: `output/consensus-synthesis.md`
 
+## Agent Prompt Templates
+
+Note: Every template below ends with the validator-enforced line `Write your output to {ABSOLUTE_OUTPUT_PATH}`. Substitute only the path placeholder; preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule.
+
 ## Agent Prompt: Initial Panelist
 
 One prompt file per panelist. Define the panelist by who they are, not by a generic job label.
@@ -56,7 +60,7 @@ Produce your independent analysis from your perspective. Write what you believe 
 
 Do not read any other agent's output.
 
-Write your response to {OUTPUT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Agent Prompt: Refinement Panelist
@@ -86,7 +90,7 @@ Revise your recommendations:
 
 {OUTPUT_FORMAT}
 
-Write your revised response to {OUTPUT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Agent Prompt: Synthesizer
@@ -117,5 +121,5 @@ Also read the original context:
 
 {OUTPUT_FORMAT}
 
-Write the consensus synthesis to {OUTPUT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```

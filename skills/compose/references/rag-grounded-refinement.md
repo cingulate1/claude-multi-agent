@@ -48,6 +48,8 @@ Select the evaluator's tool set based on the user's answer to "What sources shou
 
 If hidden-methodology is active, the generator prompt must not mention the framework name, source path, corpus, or methodology language anywhere.
 
+Note: The final line below is validator-enforced — substitute only the path placeholder, preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule.
+
 ```
 ## Task
 
@@ -65,17 +67,19 @@ If hidden-methodology is active, the generator prompt must not mention the frame
 
 {OUTPUT_FORMAT}
 
-Write your artifact to {ARTIFACT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Agent Prompt: Evaluator
 
 The evaluator prompt must instruct assessment across two tiers, in order. Both tiers must be satisfied before the pass flag can be written.
 
+Note: The final line below is validator-enforced — substitute only the path placeholder, preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule. `{GENERATOR_OUTPUT_PATH}` is the generator's absolute output path; `{ABSOLUTE_OUTPUT_PATH}` is the evaluator's own absolute output path (a different file).
+
 ```
 ## Task
 
-Evaluate the artifact at {ARTIFACT_PATH} against the source material.
+Evaluate the artifact at {GENERATOR_OUTPUT_PATH} against the source material.
 
 ## Sources
 
@@ -115,7 +119,7 @@ For every issue found in either tier, state:
 2. Where the relevant source material is
 3. What the generator should do differently
 
-Write your evaluation to output/evaluation-feedback.md.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Hard Boundary for Evaluator-Only or Hidden-Methodology Setups

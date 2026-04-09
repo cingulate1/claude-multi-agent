@@ -116,6 +116,10 @@ This topology is acyclic. The multi-round debate structure is expressed as expli
 
 `output/final-selection.md`
 
+## Agent Prompt Templates
+
+Note: Every template below ends with the validator-enforced line `Write your output to {ABSOLUTE_OUTPUT_PATH}`. Substitute only the path placeholder; preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule.
+
 ## Agent Prompt: Phase 0 Panelist
 
 One prompt file per panelist. Panelist prompts must NOT mention scoring, weights, points, winning, losing, selection mechanisms, or any external judging process.
@@ -140,7 +144,7 @@ Your response must end with a clearly delimited answer block:
 
 All reasoning and analysis appears above the Final Answer block.
 
-Write your response to {OUTPUT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Agent Prompt: Debate Round Panelist
@@ -174,7 +178,7 @@ Your response must end with:
 ## Final Answer
 [Your answer here]
 
-Write your response to {OUTPUT_PATH}
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Panelist Blindness

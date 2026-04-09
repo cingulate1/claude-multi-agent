@@ -71,6 +71,8 @@ Everything above is Phase 1 — elicitation and validation. Everything below is 
 
 Built-in patterns have prompt templates. Custom graphs do not — you write each prompt from the node's purpose, reads, and writes. Follow this structure for every agent node:
 
+Note: The final line below is validator-enforced — substitute only the path placeholder, preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule.
+
 ```
 You are {PERSONA_DESCRIPTION}.
 
@@ -86,7 +88,7 @@ You are {PERSONA_DESCRIPTION}.
 
 {OUTPUT_FORMAT — what the output should contain and how it should be structured}
 
-Write your response to {OUTPUT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 The prompt must be self-contained. The agent has no conversation history — this prompt is its entire world. Include everything it needs to do its job: what files to read, what to produce, where to write it.

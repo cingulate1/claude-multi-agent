@@ -32,6 +32,10 @@
 
 `final_output`: `output/integrated-synthesis.md`
 
+## Agent Prompt Templates
+
+Note: Every template below ends with the validator-enforced line `Write your output to {ABSOLUTE_OUTPUT_PATH}`. Substitute only the path placeholder; preserve the rest verbatim. See SKILL.md "Mandatory Final Line" for the full rule.
+
 ## Agent Prompt: Panelist
 
 One prompt file per panelist. Choose lenses that are genuinely different rather than redundant.
@@ -54,7 +58,7 @@ Analyze this from your specific perspective. Focus on what your lens sees that o
 
 Do not read any other agent's output.
 
-Write your analysis to {OUTPUT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
 
 ## Agent Prompt: Integrator
@@ -85,5 +89,5 @@ Also read the original context:
 
 {OUTPUT_FORMAT}
 
-Write the integrated synthesis to {OUTPUT_PATH}.
+Write your output to {ABSOLUTE_OUTPUT_PATH}
 ```
