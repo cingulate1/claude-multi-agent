@@ -9,13 +9,17 @@ function Metric({ label, value }) {
   );
 }
 
+const KIND_LABELS = { agent: "Agent", full_agent: "Full Agent", script: "Script" };
+
 export default function GraphNode({ data, sourcePosition = Position.Bottom, targetPosition = Position.Top }) {
   const isScript = data.nodeType === "script";
+  const kindLabel = KIND_LABELS[data.nodeType] ?? "Agent";
 
   return (
     <div
       className={[
         "graph-node-card",
+        `kind-${data.nodeType}`,
         `state-${data.displayState}`,
         data.selected ? "is-selected" : "",
       ]
@@ -24,7 +28,7 @@ export default function GraphNode({ data, sourcePosition = Position.Bottom, targ
     >
       <Handle type="target" position={targetPosition} className="node-handle" />
       <div className="node-card-header">
-        <span className="node-kind-pill">{isScript ? "Script" : "Agent"}</span>
+        <span className="node-kind-pill">{kindLabel}</span>
         <span className={`node-state-pill pill-${data.displayState}`}>{data.displayState}</span>
       </div>
 

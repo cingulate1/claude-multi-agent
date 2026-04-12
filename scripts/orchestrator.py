@@ -348,30 +348,52 @@ def _load_prompt(run_dir: Path, agent_name: str) -> str:
     return header.strip()
 
 
-def _build_agent_cmd(agent_name: str, run_dir: Path, agent_file: str | None = None) -> list[str]:
-    """Build the Claude CLI command for an agent invocation."""
-    prompt = _load_prompt(run_dir, agent_name)
+def _build_agent_cmd(
+    agent_name: str,
+    run_dir: Path,
+    agent_file: str | None = None,
+    node: dict | None = None,
+) -> list[str]:
+    """Build the Claude CLI command for an agent invocation.
 
-    cmd = [
-        "claude",
-        "--agent", f"{PLUGIN_NAME}:{agent_name}",
-        "--plugin-dir", str(PLUGIN_ROOT),
+    When *node* carries ``"full_agent": true``, the ``--agent`` flag is
+    omitted so the process runs as a full Claude Code CLI instance
+    (unrestricted tools, ability to spawn its own subagents).  Model,
+    effort, and tools are still configurable — first from the agent's
+    frontmatter file (if one exists), then from inline fields on the
+    *node* dict.
+    """
+    prompt = _load_prompt(run_dir, agent_name)
+    full_agent = bool((node or {}).get("full_agent"))
+
+    cmd = ["claude"]
+    if not full_agent:
+        cmd.extend(["--agent", f"{PLUGIN_NAME}:{agent_name}"])
+        cmd.extend(["--plugin-dir", str(PLUGIN_ROOT)])
+    cmd.extend([
         "--add-dir", str(run_dir),
         "-p", prompt,
         "--verbose",
         "--output-format", "stream-json",
         "--no-session-persistence",
-    ]
+    ])
 
     agent_path = resolve_agent_path(run_dir, agent_name, agent_file)
     frontmatter = read_agent_frontmatter(agent_path) if agent_path else {}
+    node = node or {}
 
-    model = frontmatter.get("model")
+    model = frontmatter.get("model") or node.get("model")
     if model:
         cmd.extend(["--model", model])
 
-    tools_arg = _normalize_tools_arg(frontmatter.get("tools"))
-    if tools_arg:
+    effort = frontmatter.get("effort") or node.get("effort")
+    if effort and effort in ("low", "medium", "high", "max"):
+        cmd.extend(["--effort", effort])
+
+    tools_arg = _normalize_tools_arg(
+        frontmatter.get("tools") or node.get("tools")
+    )
+    if tools_arg and not full_agent:
         cmd.extend(["--tools", tools_arg])
 
     return cmd
@@ -408,9 +430,10 @@ def run_agent(
     log_path: Path,
     agent_file: str | None = None,
     timeout: int | None = None,
+    node: dict | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a Claude agent synchronously. Returns the CompletedProcess."""
-    cmd = _build_agent_cmd(agent_name, run_dir, agent_file)
+    cmd = _build_agent_cmd(agent_name, run_dir, agent_file, node=node)
     logging.info(f"  Running: {agent_name}")
     logging.debug(f"  cmd: {' '.join(cmd)}")
 
@@ -474,7 +497,7 @@ def run_agents_parallel(agents: list[dict], run_dir: Path, log_dir: Path) -> dic
     for agent in agents:
         name = agent["name"]
         log_path = log_dir / f"{name}.log"
-        cmd = _build_agent_cmd(name, run_dir, agent.get("agent_file"))
+        cmd = _build_agent_cmd(name, run_dir, agent.get("agent_file"), node=agent)
         logging.info(f"  [parallel] {name}")
         fh = open(log_path, "w", encoding="utf-8")
         try:
@@ -553,6 +576,7 @@ def _run_self_loop(
             run_dir,
             iter_log,
             agent_file=node_entry.get("agent_file"),
+            node=node_entry,
         )
         if result.returncode != 0:
             status.update_node_tokens(agent_name, iter_log)
@@ -639,6 +663,7 @@ def _run_bipartite_cycle(
             run_dir,
             producer_log,
             agent_file=nodes_by_name[producer_name].get("agent_file"),
+            node=nodes_by_name[producer_name],
         )
         if result.returncode != 0:
             status.update_node_tokens(producer_name, producer_log)
@@ -674,6 +699,7 @@ def _run_bipartite_cycle(
             run_dir,
             evaluator_log,
             agent_file=nodes_by_name[evaluator_name].get("agent_file"),
+            node=nodes_by_name[evaluator_name],
         )
         if result.returncode != 0:
             status.update_node_tokens(evaluator_name, evaluator_log)
@@ -1112,6 +1138,7 @@ def _execute_graph(
                         run_dir,
                         agent_log,
                         agent_file=node.get("agent_file"),
+                        node=node,
                     )
 
                 if result.returncode != 0:

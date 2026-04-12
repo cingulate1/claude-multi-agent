@@ -327,6 +327,20 @@ button {
   box-shadow: 0 0 0 3px rgba(49, 85, 132, 0.4), 0 18px 36px rgba(45, 58, 79, 0.18);
 }
 
+/* ── Node kind backgrounds ── */
+
+.graph-node-card.kind-full_agent {
+  background:
+    linear-gradient(180deg, rgba(220, 232, 248, 0.92), rgba(213, 224, 240, 0.88)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
+}
+
+.graph-node-card.kind-script {
+  background:
+    linear-gradient(180deg, rgba(224, 228, 233, 0.92), rgba(216, 220, 226, 0.88)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
+}
+
 /* ── Node state outlines ── */
 
 .graph-node-card.state-pending,

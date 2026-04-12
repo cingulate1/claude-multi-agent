@@ -3,6 +3,7 @@ name:
 description: 
 tools: 
 model: 
+effort: 
 ---
 
 # {NAME}

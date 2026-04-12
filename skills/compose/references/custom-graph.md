@@ -40,14 +40,26 @@ For each node in the graph, you need seven pieces of information. Some the user 
 | Field | Ask or propose? | Notes |
 |-------|----------------|-------|
 | **Purpose** | Ask | What this node accomplishes. One sentence. |
-| **Node type** | Propose | `agent` (default, LLM-powered) or `script` (Python script — for mechanical work like scoring, aggregation, formatting). |
+| **Node type** | Propose | `agent` (default, LLM-powered), `full_agent` (unrestricted Claude Code CLI — see below), or `script` (Python script — for mechanical work like scoring, aggregation, formatting). |
 | **Reads** | Derive from edges | The output files of its dependencies. |
 | **Writes** | Propose | Default: `output/{node-name}.md`. The user rarely needs to override this. |
 | **Persona** | Propose (agents only) | Derive from the node's purpose. A researcher node gets a researcher persona. |
 | **Tools** | Propose (agents only) | Default: `Read,Write`. Add `WebSearch,WebFetch` if the task involves research, `Bash` if it involves code execution. |
 | **Model** | Propose (agents only) | Default: opus for reasoning-heavy nodes, sonnet for mechanical/structured work. |
+| **Effort** | Propose (agents only) | Optional. One of: `low`, `medium`, `high`, `max` (max is Opus-only). Omit to use session default. |
 
 Ask about purpose for every node. Propose the rest in a summary table and let the user correct any row. This minimizes back-and-forth without sacrificing control.
+
+### Full Agent Nodes
+
+A **full agent** node runs as an unrestricted Claude Code CLI instance — no subagent sandbox, no tool restrictions, full access to spawn its own subagents. This is a specialized node type. Use it **only** when:
+
+- The user explicitly requests it, OR
+- The node's task requires invoking its own subagents to function correctly (e.g., an orchestrator-within-an-orchestrator, a node that delegates subtasks to child agents)
+
+Full agent nodes do **not** have a subagent definition file (`.md`). Instead, model, effort, and tools are set directly on the execution plan node. They still receive a prompt file like any other agent node.
+
+When proposing a node specification, **never default to `full_agent`** — always default to `agent`. Only suggest `full_agent` if the node's purpose clearly requires unrestricted CLI access, and explain why.
 
 ## Validate the Topology
 
@@ -116,6 +128,24 @@ The execution plan follows the same schema as built-in patterns.
 ```
 
 The `agent_file` field references the `.md` file in the run's `agents/` directory. If omitted, the orchestrator falls back to `{name}.md`.
+
+### Full agent nodes
+
+Full agent nodes omit the `agent_file` and set `"full_agent": true`. Model, effort, and tools are specified inline on the node:
+
+```json
+{
+  "name": "delegator",
+  "full_agent": true,
+  "depends_on": ["planner"],
+  "parallel_group": null,
+  "outputs": ["output/delegator.md"],
+  "model": "opus",
+  "effort": "high"
+}
+```
+
+No `.md` subagent definition file is generated for full agent nodes. The orchestrator omits the `--agent` flag, so the process runs as a native Claude Code CLI instance with unrestricted tool access. The node still receives a prompt file (`{name}-prompt.txt`) like any other agent node.
 
 ### Script nodes
 

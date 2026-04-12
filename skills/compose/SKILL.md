@@ -115,13 +115,15 @@ Read only the selected pattern's reference. If choosing between two close option
 
 Ask the questions from the reference's **Ask the User** section. Be conversational — suggest defaults where the reference provides them. Do not improvise pattern-specific rules; follow the reference.
 
-### Select Models
+### Select Models and Effort
 
 Default model assignments:
 - **Opus**: All reasoning-heavy agents (panelists, evaluators, synthesizers, generators, integrators, selectors)
 - **Sonnet**: Mechanical/structured agents (workers in Parallel Decomposition)
 
-Present the proposed model assignment for each agent in the graph. Ask the user if they want to override any.
+Default effort level: none (agents inherit the session default). Only Opus and Sonnet support effort levels. Valid values: `low`, `medium`, `high`, `max` (max is Opus-only).
+
+Present the proposed model assignment for each agent in the graph. If the user has specified or implied an effort level, include it. Ask the user if they want to override any model or effort assignments.
 
 ### Confirm Full Configuration
 
@@ -130,7 +132,7 @@ Summarize everything decided so far:
 - Pattern and why it was chosen
 - Agent count, names, and topology (which agents exist, what depends on what, any cycles)
 - Pattern-specific settings (from the reference's **Ask the User** answers)
-- Model assignment per agent
+- Model and effort assignment per agent
 - Tool assignment per agent (from the reference's **Tool Assignments** section; note any additions needed for the task, e.g. WebSearch for web research or Bash for code execution)
 
 Ask the user to confirm. If they want changes, go back to the relevant step. Once confirmed, proceed to Phase 2.
@@ -156,7 +158,7 @@ Where `{slug}` is a short kebab-case summary of the task (max 40 chars).
 For each agent required by the pattern, run:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/skills/compose/scripts/create-subagent.py" <name> <description> <tools> <model> <output_dir>
+python "${CLAUDE_PLUGIN_ROOT}/skills/compose/scripts/create-subagent.py" <name> <description> <tools> <model> <output_dir> [effort]
 ```
 
 - `name` — the agent's identifier (used as the filename: `{name}.md`)
@@ -164,6 +166,9 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/compose/scripts/create-subagent.py" <name> 
 - `tools` — comma-delimited list (e.g., `"Read,Write,WebSearch,WebFetch"`)
 - `model` — one of: `haiku`, `sonnet`, `opus`
 - `output_dir` — the run directory's agents folder: `{run_dir}/agents`
+- `effort` — (optional) one of: `low`, `medium`, `high`, `max`. Only Opus and Sonnet support this; `max` is Opus-only. Omit to leave blank (agent inherits session default).
+
+**Full agent nodes** (custom graphs only, when `"full_agent": true`): Do not generate a `.md` file. Their model, effort, and tools are set inline on the execution plan node. They still receive a prompt file.
 
 ### Write Agent Prompts
 

@@ -122,7 +122,7 @@ function buildNodeData(node, snapshot, dependentsMap, selectedNodeId) {
 
   return {
     label: node.name,
-    nodeType: node.node_type ?? "agent",
+    nodeType: node.full_agent ? "full_agent" : (node.node_type ?? "agent"),
     displayState,
     orchestratorState: normalizeDisplayState(statusNode.state ?? "pending"),
     activityState: normalizeDisplayState(runStatusRow?.state ?? ""),
