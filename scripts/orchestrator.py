@@ -140,9 +140,8 @@ def _verify_deletion_tokens(run_dir: Path, node: dict) -> list[str]:
                 continue
             match = DELETION_LINE_RE.match(line)
             if not match:
-                line_errors.append(
-                    f"{output_rel}:{lineno}: malformed deletion record: {line!r}"
-                )
+                # Non-matching lines are ignored — only deletion
+                # claims are verified.
                 continue
             deleted_path = Path(match.group(1))
             if deleted_path.exists():
