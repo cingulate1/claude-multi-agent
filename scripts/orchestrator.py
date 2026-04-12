@@ -102,6 +102,67 @@ def unstage_agents(staged_files: list[Path]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Deletion-token verification
+# ---------------------------------------------------------------------------
+
+DELETION_LINE_RE = re.compile(r'^"(.+)" was deleted$')
+
+
+def _verify_deletion_tokens(run_dir: Path, node: dict) -> list[str]:
+    """Verify deletion tokens (.temp outputs) and clean up on success.
+
+    A deletion-token file contains one line per deleted file:
+        "{ABSOLUTE_PATH}" was deleted
+
+    For each line the referenced path must no longer exist.  Returns a
+    list of error strings — empty means all verified.  On full success
+    the .temp file itself is removed.
+    """
+    errors: list[str] = []
+
+    for output_rel in node.get("outputs", []):
+        if not output_rel.endswith(".temp"):
+            continue
+        token_path = run_dir / output_rel
+        if not token_path.is_file():
+            continue
+
+        try:
+            text = token_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"Cannot read deletion token {output_rel}: {exc}")
+            continue
+
+        line_errors: list[str] = []
+        for lineno, raw_line in enumerate(text.splitlines(), start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            match = DELETION_LINE_RE.match(line)
+            if not match:
+                line_errors.append(
+                    f"{output_rel}:{lineno}: malformed deletion record: {line!r}"
+                )
+                continue
+            deleted_path = Path(match.group(1))
+            if deleted_path.exists():
+                line_errors.append(
+                    f"{output_rel}:{lineno}: file still exists: {deleted_path}"
+                )
+
+        if line_errors:
+            errors.extend(line_errors)
+        else:
+            # All deletions confirmed — remove the token itself
+            try:
+                token_path.unlink()
+            except OSError:
+                pass
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
 # Agent invocation
 # ---------------------------------------------------------------------------
 
@@ -1177,6 +1238,28 @@ def _execute_graph(
                     if not (run_dir / expected).exists():
                         logging.warning(f"Expected output missing: {expected}")
 
+                # Verify deletion tokens (.temp outputs)
+                deletion_errors = _verify_deletion_tokens(run_dir, node)
+                if deletion_errors:
+                    for err in deletion_errors:
+                        logging.error(f"  [{name}] deletion-token: {err}")
+                    status.set_node_state(name, "failed")
+                    failed_set.add(name)
+                    resolved.add(name)
+                    status.add_error(
+                        f"Node '{name}' failed deletion verification: "
+                        f"{len(deletion_errors)} error(s)"
+                    )
+                    cancelled = _cancel_dependents(
+                        name, nodes, completed, failed_set, status
+                    )
+                    resolved.update(cancelled)
+                    status.append_event(
+                        f"Failed: {name} (deletion verification)"
+                        + (f"; cancelled {cancelled}" if cancelled else "")
+                    )
+                    continue
+
                 status.set_node_state(name, "completed")
                 completed.add(name)
                 resolved.add(name)
@@ -1241,6 +1324,30 @@ def _execute_graph(
 
                         status.update_node_tokens(name, log_dir / f"{name}.log")
                         status.unregister_active_logs(name)
+
+                        # Verify deletion tokens (.temp outputs)
+                        par_node = nodes_by_name.get(name, {})
+                        deletion_errors = _verify_deletion_tokens(run_dir, par_node)
+                        if deletion_errors:
+                            for err in deletion_errors:
+                                logging.error(f"  [{name}] deletion-token: {err}")
+                            status.set_node_state(name, "failed")
+                            failed_set.add(name)
+                            resolved.add(name)
+                            status.add_error(
+                                f"Node '{name}' failed deletion verification: "
+                                f"{len(deletion_errors)} error(s)"
+                            )
+                            cancelled = _cancel_dependents(
+                                name, nodes, completed, failed_set, status
+                            )
+                            resolved.update(cancelled)
+                            status.append_event(
+                                f"Failed: {name} (deletion verification)"
+                                + (f"; cancelled {cancelled}" if cancelled else "")
+                            )
+                            continue
+
                         status.set_node_state(name, "completed")
                         completed.add(name)
                         resolved.add(name)

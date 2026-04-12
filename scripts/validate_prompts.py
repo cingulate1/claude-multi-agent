@@ -31,8 +31,15 @@ def validate_all(plan_path: Path) -> tuple[bool, list[str]]:
 
     for node in plan.get("nodes", []):
         name = node["name"]
+        node_type = node.get("node_type", "agent")
         outputs = node.get("outputs", [])
+
         if not outputs:
+            errors.append(f"{name}: node declares no outputs")
+            continue
+
+        # Script nodes have no prompt files — only validate outputs exist
+        if node_type == "script":
             continue
 
         prompt_file = run_dir / "agents" / f"{name}-prompt.txt"

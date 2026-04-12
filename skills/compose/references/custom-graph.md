@@ -67,11 +67,46 @@ Before generating, check these constraints. Catching violations here prevents fa
 
 **Acyclic or explicitly cycled.** Every cycle must be declared as a self-loop or bipartite cycle in the execution plan with a max iteration count and exit condition. If the user's graph has an implicit cycle (A → B → A), ask whether this is intentional iteration or a mistake. If intentional, ask for the exit condition and max iterations.
 
-**Every node should have at least one output.** Nodes that don't write anything are invisible to downstream nodes — they can't pass information forward. The orchestrator does not enforce this as a hard constraint (it logs a warning but continues), but a node with no output is almost always a design error. If a node's purpose is purely evaluative (e.g., a critic that just scores), it still needs to write its assessment to a file.
+**Every node must declare at least one output.** The prompt validator rejects nodes with empty `outputs`. Nodes that don't write anything are invisible to downstream nodes and unverifiable by the orchestrator. If a node's purpose is purely evaluative (e.g., a critic that just scores), it still needs to write its assessment to a file. Nodes whose purpose is file deletion use a **deletion token** (a `.temp` file) as their output — see "Deletion Tokens" below.
 
 **Parallel groups are truly independent.** Nodes in the same parallel group must not depend on each other. If the user puts two nodes in parallel but one reads the other's output, flag the contradiction.
 
 **Script nodes vs. agent nodes.** If a node's work is mechanical (scoring, aggregation, formatting), propose making it a script node rather than an LLM agent. Script nodes are faster, cheaper, and deterministic. Note: script nodes within a parallel group run sequentially, even when agent nodes in the same group run in parallel.
+
+### Deletion Tokens
+
+Some nodes exist for their side effects — deleting files, pruning a dataset, cleaning up artifacts — rather than producing new files. These nodes still need a declared output so the orchestrator can track them and verify their work succeeded.
+
+A **deletion token** is a `.temp` file that records which files were deleted. The node writes one line per deleted file:
+
+```
+"{ABSOLUTE_PATH_OF_DELETED_FILE}" was deleted
+```
+
+Example with multiple deletions:
+
+```
+"D:\Dropbox\Repository\Media\transcripts\gameplay-commentary-12.txt" was deleted
+"D:\Dropbox\Repository\Media\transcripts\gameplay-commentary-19.txt" was deleted
+"D:\Dropbox\Repository\Media\transcripts\gameplay-commentary-25.txt" was deleted
+```
+
+The orchestrator verifies deletion tokens automatically on node completion:
+- For each line, it confirms the referenced file no longer exists.
+- If all deletions are verified, the `.temp` file itself is removed and the node completes normally.
+- If any referenced file still exists, the node is marked **failed** (dependents are cancelled, but the rest of the workflow continues).
+
+In the execution plan, a deletion node declares its output as a `.temp` file:
+
+```json
+{
+  "name": "pruner",
+  "agent_file": "pruner.md",
+  "depends_on": [],
+  "parallel_group": "pruners",
+  "outputs": ["output/pruner-deletions.temp"]
+}
+```
 
 ---
 
