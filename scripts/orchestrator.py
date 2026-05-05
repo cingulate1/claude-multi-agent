@@ -521,10 +521,9 @@ def run_script(
     timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a script node directly (no LLM agent). Returns the CompletedProcess."""
-    script_path = run_dir / script
-    if not script_path.is_file():
-        script_path = PLUGIN_ROOT / script
-    if not script_path.is_file():
+    candidates = [run_dir / script, PLUGIN_ROOT / "scripts" / script, PLUGIN_ROOT / script]
+    script_path = next((p for p in candidates if p.is_file()), None)
+    if script_path is None:
         raise RuntimeError(f"Script not found for node '{node_name}': {script}")
 
     cmd = [sys.executable, str(script_path)]

@@ -67,15 +67,6 @@ The panelist with the highest total score wins. Their final-round answer is copi
 - The decay factor counteracts LLM conformity: opinion shifts in later rounds carry less weight than earlier, more independent judgments.
 - The deterministic scoring stage runs outside the LLM. The Haiku calls only produce atomic 1-5 integers — the aggregation math cannot be influenced by hallucination or manipulation.
 
-### Scoring Scripts
-
-Two scripts are bundled at `${CLAUDE_PLUGIN_ROOT}/skills/compose/scripts/`:
-
-1. `run_semantic_evals.py` — Invokes Haiku to produce evaluation CSVs in `output/evaluations/`. Default: 3 samples per evaluation.
-2. `score_debate_semantic.py` — Reads the CSVs, builds coefficient matrices, computes final scores, writes `output/final-selection.md`.
-
-Copy both into the run directory at scaffold time. The orchestrator runs them as two sequential script nodes after the final debate round.
-
 ## Tool Assignments
 
 | Subagent | Tools |
