@@ -3,6 +3,7 @@
   "owner": {
     "name": "cingulate1"
   },
+  "description": "A Claude plugin that designs and then autonomously executes multi-agent workflows as directed graphs.",
   "plugins": [
     {
       "name": "multi-agent-graph",
